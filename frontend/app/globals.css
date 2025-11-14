@@ -1,0 +1,346 @@
+/* All @import rules must be at the top */
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+@import "leaflet.markercluster/dist/MarkerCluster.css";
+@import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+
+/* Custom tooltip styles for Leaflet */
+.custom-tooltip {
+  background-color: rgba(0, 0, 0, 0.8) !important;
+  border: none !important;
+  border-radius: 6px !important;
+  color: white !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+
+.custom-tooltip::before {
+  border-top-color: rgba(0, 0, 0, 0.8) !important;
+}
+
+/* Adjust Leaflet zoom controls when left sidebar is open */
+.leaflet-top.leaflet-left {
+  transition: left 0.3s ease;
+}
+
+.leaflet-top.leaflet-right {
+  transition: right 0.3s ease;
+}
+
+/* Fallback to local Sukhumvit Set if available */
+@font-face {
+  font-family: 'Sukhumvit Set';
+  src: local('Sukhumvit Set Text'), local('SukhumvitSet-Text');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sukhumvit Set';
+  src: local('Sukhumvit Set Medium'), local('SukhumvitSet-Medium');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sukhumvit Set';
+  src: local('Sukhumvit Set Bold'), local('SukhumvitSet-Bold');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Noto Sans Thai from Google Fonts - using @font-face instead of @import */
+@font-face {
+  font-family: 'Noto Sans Thai';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/notosansthai/v27/iJWnBXeUZi_OHPqn4wq6hQ2_hbJ1xyN9wd43SofNWcd1MKVQt_So_9CdU5OtPuqNNfFl2.woff2) format('woff2');
+  unicode-range: U+0E01-0E5B, U+200C-200D, U+25CC;
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: 'Sukhumvit Set', 'Noto Sans Thai', sans-serif;
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Sukhumvit Set', 'Noto Sans Thai', sans-serif;
+  line-height: 1.6;
+}
+
+/* ============================================
+   HeroUI Input Fix - Make input fill container
+   ============================================ */
+[data-slot="inputWrapper"] {
+  min-height: 48px !important;
+  height: 48px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: stretch !important;
+  position: relative !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  border-radius: 0.5rem !important;
+}
+
+/* Override for settings page - allow custom border styling */
+.app-settings-page [data-slot="base"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+}
+
+.app-settings-page [data-slot="inputWrapper"] {
+  border: 2px solid #e5e7eb !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  border-color: #e5e7eb !important;
+  min-height: 40px !important;
+  height: 40px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
+  box-sizing: border-box !important;
+  flex: 1 1 0% !important;
+}
+
+/* Force grid columns to allow shrinking */
+.app-settings-page .grid > div {
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+
+/* Force all input containers in settings page to be full width */
+.app-settings-page .grid > div > div[style*="width"] {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+/* Override any max-width constraints on Input base */
+.app-settings-page [data-slot="base"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+  display: block !important;
+}
+
+/* Ensure inputWrapper takes full width */
+.app-settings-page [data-slot="inputWrapper"] {
+  border: 2px solid #e5e7eb !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  border-color: #e5e7eb !important;
+  min-height: 40px !important;
+  height: 40px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
+  box-sizing: border-box !important;
+  flex: 1 1 0% !important;
+  display: flex !important;
+}
+
+.app-settings-page [data-slot="inputWrapper"]:hover {
+  border-color: #d1d5db !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+}
+
+.app-settings-page [data-slot="inputWrapper"]:focus-within {
+  border-color: #9ca3af !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.app-settings-page [data-slot="innerWrapper"] {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+[data-slot="innerWrapper"] {
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  flex: 1 1 0% !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+}
+
+/* Target all possible input selectors - Force full width and height */
+[data-slot="inputWrapper"] [data-slot="innerWrapper"] input,
+[data-slot="inputWrapper"] [data-slot="innerWrapper"] > input,
+[data-slot="innerWrapper"] input[type="tel"],
+[data-slot="innerWrapper"] input[type="text"],
+[data-slot="innerWrapper"] input[type="password"],
+[data-slot="innerWrapper"] input[type="email"],
+input[data-slot="input"],
+[data-slot="input"] {
+  font-family: 'Sukhumvit Set', 'Noto Sans Thai', sans-serif !important;
+  line-height: 1.5 !important;
+  font-size: 1rem !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  height: 100% !important;
+  min-height: 48px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: 1 1 0% !important;
+  flex-grow: 1 !important;
+  flex-shrink: 1 !important;
+  flex-basis: 0% !important;
+  display: block !important;
+  box-sizing: border-box !important;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  position: relative !important;
+}
+
+/* Force input to take full available space - Use absolute positioning */
+[data-slot="innerWrapper"] {
+  position: relative !important;
+}
+
+[data-slot="innerWrapper"] input {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 48px !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Additional fix for input inside innerWrapper */
+[data-slot="innerWrapper"] > *:not(button):not([data-slot="endContent"]) {
+  flex: 1 1 0% !important;
+}
+
+[data-slot="innerWrapper"] > input {
+  flex: 1 1 0% !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 48px !important;
+}
+
+/* Ensure endContent is positioned at the right */
+[data-slot="inputWrapper"] > [data-slot="endContent"] {
+  position: absolute !important;
+  right: 0.75rem !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  z-index: 10 !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+[data-slot="label"] {
+  font-family: 'Sukhumvit Set', 'Noto Sans Thai', sans-serif !important;
+  line-height: 1.5 !important;
+  margin-bottom: 0.5rem !important;
+  display: block !important;
+  font-size: 0.875rem !important;
+}
+
+/* ============================================
+   HeroUI Checkbox Fix - Remove duplicate checkmark
+   ============================================ */
+[data-slot="base"] {
+  font-family: 'Sukhumvit Set', 'Noto Sans Thai', sans-serif !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  line-height: 1.5 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+[data-slot="wrapper"] {
+  border-radius: 0.25rem !important;
+  flex-shrink: 0 !important;
+  width: 0.75rem !important;
+  height: 0.75rem !important;
+  min-width: 0.75rem !important;
+  min-height: 0.75rem !important;
+  position: relative !important;
+  overflow: visible !important;
+}
+
+/* Remove any duplicate checkmarks or icons */
+[data-slot="wrapper"]::before,
+[data-slot="wrapper"]::after {
+  content: none !important;
+}
+
+/* Hide duplicate SVG checkmarks if any */
+[data-slot="wrapper"] svg:not(:first-of-type),
+[data-slot="base"] svg:not(:first-of-type) {
+  display: none !important;
+}
+
+/* Ensure only one checkmark is visible */
+[data-slot="wrapper"] > svg {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: 0.5rem !important;
+  height: 0.5rem !important;
+  z-index: 1 !important;
+}
+
+/* Checkbox label fix */
+[data-slot="base"] > [data-slot="label"],
+[data-slot="base"] > span {
+  font-family: 'Sukhumvit Set', 'Noto Sans Thai', sans-serif !important;
+  line-height: 1.5 !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  white-space: nowrap !important;
+  display: inline-block !important;
+  vertical-align: middle !important;
+  font-size: 0.875rem !important;
+}
+
+/* General input/textarea/select fix */
+input:not([data-slot="input"]), 
+textarea:not([data-slot="input"]), 
+select:not([data-slot="input"]) {
+  font-family: 'Sukhumvit Set', 'Noto Sans Thai', sans-serif !important;
+  line-height: 1.5 !important;
+  padding: 0.5rem 0.75rem !important;
+}

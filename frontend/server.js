@@ -6,31 +6,40 @@ const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
 const port = parseInt(process.env.PORT || '3000', 10);
 
-// When using middleware `hostname` and `port` must be provided below
-const app = next({ dev, hostname, port });
+// Initialize Next.js app
+const app = next({ 
+  dev,
+  hostname,
+  port,
+  // Explicitly disable standalone mode
+  conf: {
+    output: undefined
+  }
+});
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
-  createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
     try {
-      // Be sure to pass `true` as the second argument to `url.parse`.
-      // This tells it to parse the query portion of the URL.
       const parsedUrl = parse(req.url, true);
-      const { pathname, query } = parsedUrl;
-
       await handle(req, res, parsedUrl);
     } catch (err) {
       console.error('Error occurred handling', req.url, err);
       res.statusCode = 500;
       res.end('internal server error');
     }
-  })
-    .once('error', (err) => {
-      console.error(err);
-      process.exit(1);
-    })
-    .listen(port, hostname, () => {
-      console.log(`> Ready on http://${hostname}:${port}`);
-    });
+  });
+
+  server.once('error', (err) => {
+    console.error('Server error:', err);
+    process.exit(1);
+  });
+
+  server.listen(port, hostname, () => {
+    console.log(`> Ready on http://${hostname}:${port}`);
+  });
+}).catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
 

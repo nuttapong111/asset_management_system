@@ -160,9 +160,33 @@ export default function Header() {
   return (
     <header className="bg-white shadow-sm border-b border-gray-200">
       <div className="h-16 flex items-center justify-between px-6">
-        {/* Left Side - Title */}
-        <div className="flex items-center">
+        {/* Left Side - Title and Admin Menu */}
+        <div className="flex items-center gap-6">
           <h1 className="text-xl font-semibold text-gray-800 whitespace-nowrap">ระบบบริหารจัดการทรัพย์สิน</h1>
+          {user.role === 'admin' && (
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => router.push('/admin/summary')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  pathname === '/admin/summary'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                ข้อมูลสรุป
+              </button>
+              <button
+                onClick={() => router.push('/admin/users')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  pathname === '/admin/users'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                จัดการผู้ใช้งาน
+              </button>
+            </div>
+          )}
         </div>
         
         {/* Right Side - Notification and User Profile */}

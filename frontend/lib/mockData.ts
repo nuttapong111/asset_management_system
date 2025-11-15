@@ -690,6 +690,37 @@ export const getUserByPhone = (phone: string): User | undefined => {
   return mockUsers.find(user => user.phone === phone);
 };
 
+export const addUser = (user: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): User => {
+  const newUser: User = {
+    ...user,
+    id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  mockUsers.push(newUser);
+  return newUser;
+};
+
+export const updateUser = (id: string, updates: Partial<User>): User | null => {
+  const userIndex = mockUsers.findIndex(u => u.id === id);
+  if (userIndex === -1) return null;
+  
+  mockUsers[userIndex] = {
+    ...mockUsers[userIndex],
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+  return mockUsers[userIndex];
+};
+
+export const deleteUser = (id: string): boolean => {
+  const userIndex = mockUsers.findIndex(u => u.id === id);
+  if (userIndex === -1) return false;
+  
+  mockUsers.splice(userIndex, 1);
+  return true;
+};
+
 export const getAssetsByOwner = (ownerId: string): Asset[] => {
   return mockAssets.filter(asset => asset.ownerId === ownerId);
 };

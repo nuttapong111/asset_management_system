@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Layout from '@/components/common/Layout';
 import { Card, CardBody } from '@heroui/react';
 import { 
@@ -24,6 +25,7 @@ import { UserRole } from '@/types/user';
 import DashboardMapComponent from '@/components/common/DashboardMapComponentV2';
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [stats, setStats] = useState({
     totalAssets: 0,
     totalContracts: 0,
@@ -205,6 +207,26 @@ export default function DashboardPage() {
   ].filter(card => !card.hide);
 
   const assetsWithLocation = assets.filter(asset => asset.latitude && asset.longitude);
+
+  // For admin, redirect to summary page instead of showing map
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      router.push('/admin/summary');
+    }
+  }, [user, router]);
+
+  if (user?.role === 'admin') {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+            <p className="mt-4 text-gray-600">กำลังโหลด...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>

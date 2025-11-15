@@ -19,6 +19,7 @@ interface AssetFormData {
   latitude: string;
   longitude: string;
   description: string;
+  isParent?: boolean;
 }
 
 export const showAssetForm = async (
@@ -370,7 +371,15 @@ export const showAssetForm = async (
     let savedAsset: Asset;
 
     if (asset) {
-      const updatedAsset = updateAsset(asset.id, formValues);
+      const updatedAsset = updateAsset(asset.id, {
+        ...formValues,
+        size: typeof formValues.size === 'string' ? parseFloat(formValues.size) : formValues.size,
+        rooms: typeof formValues.rooms === 'string' ? parseInt(formValues.rooms) : formValues.rooms,
+        purchasePrice: typeof formValues.purchasePrice === 'string' ? parseFloat(formValues.purchasePrice) : formValues.purchasePrice,
+        currentValue: typeof formValues.currentValue === 'string' ? parseFloat(formValues.currentValue) : formValues.currentValue,
+        latitude: formValues.latitude ? (typeof formValues.latitude === 'string' ? parseFloat(formValues.latitude) : formValues.latitude) : undefined,
+        longitude: formValues.longitude ? (typeof formValues.longitude === 'string' ? parseFloat(formValues.longitude) : formValues.longitude) : undefined,
+      } as Partial<Asset>);
       
       if (!updatedAsset) {
         await Swal.fire({
@@ -392,6 +401,12 @@ export const showAssetForm = async (
     } else {
       savedAsset = addAsset({
         ...formValues,
+        size: typeof formValues.size === 'string' ? parseFloat(formValues.size) : formValues.size,
+        rooms: typeof formValues.rooms === 'string' ? parseInt(formValues.rooms) : formValues.rooms,
+        purchasePrice: typeof formValues.purchasePrice === 'string' ? parseFloat(formValues.purchasePrice) : formValues.purchasePrice,
+        currentValue: typeof formValues.currentValue === 'string' ? parseFloat(formValues.currentValue) : formValues.currentValue,
+        latitude: formValues.latitude ? (typeof formValues.latitude === 'string' ? parseFloat(formValues.latitude) : formValues.latitude) : undefined,
+        longitude: formValues.longitude ? (typeof formValues.longitude === 'string' ? parseFloat(formValues.longitude) : formValues.longitude) : undefined,
         ownerId: user.id,
         images: [],
         documents: [],

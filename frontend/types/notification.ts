@@ -1,4 +1,4 @@
-export type NotificationType = 'payment_proof' | 'contract_expiring' | 'maintenance_request' | 'payment_overdue' | 'system';
+export type NotificationType = 'payment_proof' | 'payment_due' | 'payment_due_soon' | 'contract_expiring' | 'maintenance_request' | 'payment_overdue' | 'system';
 
 export type NotificationStatus = 'unread' | 'read';
 

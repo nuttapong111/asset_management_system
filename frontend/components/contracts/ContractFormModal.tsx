@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, Input, Select, SelectItem } from '@heroui/react';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, Input, Textarea, Select, SelectItem } from '@heroui/react';
 import { Contract } from '@/types/contract';
 import { Asset } from '@/types/asset';
 import { User } from '@/types/user';
@@ -228,7 +228,7 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
               isDisabled={!!contract || !!defaultAssetId}
             >
               {availableAssets.map((asset) => (
-                <SelectItem key={asset.id} value={asset.id} textValue={`${asset.name} - ${asset.address}`}>
+                <SelectItem key={asset.id} textValue={`${asset.name} - ${asset.address}`}>
                   {asset.name} - {asset.address}
                 </SelectItem>
               ))}
@@ -248,7 +248,7 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
               isDisabled={!!contract}
             >
               {tenants.map((tenant) => (
-                <SelectItem key={tenant.id} value={tenant.id} textValue={`${tenant.name} (${tenant.phone})`}>
+                <SelectItem key={tenant.id} textValue={`${tenant.name} (${tenant.phone})`}>
                   {tenant.name} ({tenant.phone})
                 </SelectItem>
               ))}
@@ -329,18 +329,17 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
                 setFormData({ ...formData, status: selected || 'active' });
               }}
             >
-              <SelectItem key="active" value="active" textValue="ใช้งาน">ใช้งาน</SelectItem>
-              <SelectItem key="pending" value="pending" textValue="รอดำเนินการ">รอดำเนินการ</SelectItem>
-              <SelectItem key="expired" value="expired" textValue="หมดอายุ">หมดอายุ</SelectItem>
-              <SelectItem key="terminated" value="terminated" textValue="ยกเลิก">ยกเลิก</SelectItem>
+              <SelectItem key="active" textValue="ใช้งาน">ใช้งาน</SelectItem>
+              <SelectItem key="pending" textValue="รอดำเนินการ">รอดำเนินการ</SelectItem>
+              <SelectItem key="expired" textValue="หมดอายุ">หมดอายุ</SelectItem>
+              <SelectItem key="terminated" textValue="ยกเลิก">ยกเลิก</SelectItem>
             </Select>
 
-            <Input
+            <Textarea
               label="หมายเหตุ (ถ้ามี)"
               placeholder="หมายเหตุเพิ่มเติม"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              multiline
               minRows={3}
             />
           </div>

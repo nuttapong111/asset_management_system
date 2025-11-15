@@ -106,6 +106,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
   const [exportFormat, setExportFormat] = useState<'excel' | 'pdf'>('excel');
   const [isClient, setIsClient] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'lease' | 'payment' | 'maintenance' | 'units' | 'documents'>('details');
+  const [qrCodeImage, setQrCodeImage] = useState<string | null>(null); // QR code for payment
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
   const [isSelectingLocation, setIsSelectingLocation] = useState(false);
   const [tempMarker, setTempMarker] = useState<{ lat: number; lng: number } | null>(null);
@@ -127,6 +128,12 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
 
   useEffect(() => {
     setIsClient(true);
+    
+    // Load QR code from localStorage
+    const storedQrCode = localStorage.getItem('payment_qr_code');
+    if (storedQrCode) {
+      setQrCodeImage(storedQrCode);
+    }
     
     // Check payment notifications on mount and periodically
     checkPaymentNotifications();
@@ -169,6 +176,19 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     let freshAssets = mockAssets.filter(asset => {
       if (user?.role === 'owner') {
         return asset.ownerId === user.id;
+      }
+      if (user?.role === 'tenant') {
+        // For tenants, only show assets they are renting
+        const tenantContracts = mockContracts.filter(c => c.tenantId === user.id && c.status === 'active');
+        const tenantAssetIds = tenantContracts.map(c => c.assetId);
+        // Also check child assets if this is a parent asset
+        const childAssetIds = tenantContracts
+          .map(c => {
+            const contractAsset = mockAssets.find(a => a.id === c.assetId);
+            return contractAsset?.parentAssetId;
+          })
+          .filter(id => id !== undefined) as string[];
+        return tenantAssetIds.includes(asset.id) || childAssetIds.includes(asset.id) || (asset.isParent && asset.childAssets?.some(childId => tenantAssetIds.includes(childId)));
       }
       return true;
     });
@@ -785,45 +805,49 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
 
         {/* Action Buttons - Bottom Right */}
         <div className="absolute bottom-4 right-4 z-[1000] flex flex-col gap-2 md:gap-3">
-          {/* Settings Button */}
-          <button
-            onClick={() => {
-              setShowSettingsModal(!showSettingsModal);
-              if (!showSettingsModal) {
-                setShowDocumentModal(false);
-                setShowFilterModal(false);
-                setShowStatsModal(false);
-              }
-            }}
-            className={`p-2 md:p-3 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-110 w-12 h-12 md:w-14 md:h-14 flex items-center justify-center ${
-              showSettingsModal 
-                ? 'bg-gradient-to-r from-gray-700 to-gray-800' 
-                : 'bg-gradient-to-r from-gray-600 to-gray-700'
-            } text-white`}
-            title="การตั้งค่า"
-          >
-            <Cog6ToothIcon className="w-5 h-5 md:w-7 md:h-7" />
-          </button>
+          {/* Settings Button - Only show for owner/admin */}
+          {(user?.role === 'owner' || user?.role === 'admin') && (
+            <button
+              onClick={() => {
+                setShowSettingsModal(!showSettingsModal);
+                if (!showSettingsModal) {
+                  setShowDocumentModal(false);
+                  setShowFilterModal(false);
+                  setShowStatsModal(false);
+                }
+              }}
+              className={`p-2 md:p-3 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-110 w-12 h-12 md:w-14 md:h-14 flex items-center justify-center ${
+                showSettingsModal 
+                  ? 'bg-gradient-to-r from-gray-700 to-gray-800' 
+                  : 'bg-gradient-to-r from-gray-600 to-gray-700'
+              } text-white`}
+              title="การตั้งค่า"
+            >
+              <Cog6ToothIcon className="w-5 h-5 md:w-7 md:h-7" />
+            </button>
+          )}
 
-          {/* Document Button */}
-          <button
-            onClick={() => {
-              setShowDocumentModal(!showDocumentModal);
-              if (!showDocumentModal) {
-                setShowSettingsModal(false);
-                setShowFilterModal(false);
-                setShowStatsModal(false);
-              }
-            }}
-            className={`p-2 md:p-3 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-110 w-12 h-12 md:w-14 md:h-14 flex items-center justify-center ${
-              showDocumentModal 
-                ? 'bg-gradient-to-r from-indigo-700 to-purple-700' 
-                : 'bg-gradient-to-r from-indigo-600 to-purple-600'
-            } text-white`}
-            title="เอกสารภาพรวม"
-          >
-            <DocumentTextIcon className="w-5 h-5 md:w-7 md:h-7" />
-          </button>
+          {/* Document Button - Only show for owner/admin */}
+          {(user?.role === 'owner' || user?.role === 'admin') && (
+            <button
+              onClick={() => {
+                setShowDocumentModal(!showDocumentModal);
+                if (!showDocumentModal) {
+                  setShowSettingsModal(false);
+                  setShowFilterModal(false);
+                  setShowStatsModal(false);
+                }
+              }}
+              className={`p-2 md:p-3 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-110 w-12 h-12 md:w-14 md:h-14 flex items-center justify-center ${
+                showDocumentModal 
+                  ? 'bg-gradient-to-r from-indigo-700 to-purple-700' 
+                  : 'bg-gradient-to-r from-indigo-600 to-purple-600'
+              } text-white`}
+              title="เอกสารภาพรวม"
+            >
+              <DocumentTextIcon className="w-5 h-5 md:w-7 md:h-7" />
+            </button>
+          )}
 
           {/* Search/Filter Button */}
           <button
@@ -864,14 +888,16 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
             </button>
           )}
           
-          {/* Stats Button */}
-          <button
-            onClick={() => setShowStatsModal(true)}
-            className="bg-gradient-to-r from-purple-600 to-pink-600 text-white p-2 md:p-3 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-110 w-12 h-12 md:w-14 md:h-14 flex items-center justify-center"
-            title="ข้อมูลสรุปทั้งหมด"
-          >
-            <ChartBarIcon className="w-5 h-5 md:w-7 md:h-7" />
-          </button>
+          {/* Stats Button - Only show for owner/admin */}
+          {(user?.role === 'owner' || user?.role === 'admin') && (
+            <button
+              onClick={() => setShowStatsModal(true)}
+              className="bg-gradient-to-r from-purple-600 to-pink-600 text-white p-2 md:p-3 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-110 w-12 h-12 md:w-14 md:h-14 flex items-center justify-center"
+              title="ข้อมูลสรุปทั้งหมด"
+            >
+              <ChartBarIcon className="w-5 h-5 md:w-7 md:h-7" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -1739,21 +1765,110 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                         <label className="block text-sm font-semibold text-gray-700 mb-2">
                           QR Code สำหรับรับเงิน
                         </label>
-                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                          <PhotoIcon className="w-12 h-12 mx-auto text-gray-400 mb-2" />
-                          <p className="text-sm text-gray-600 mb-2">คลิกเพื่ออัปโหลด QR Code</p>
-                          <Button
-                            size="sm"
-                            color="primary"
-                            variant="bordered"
-                            onClick={() => {
-                              // TODO: Implement QR code upload
-                              console.log('Upload QR code');
-                            }}
-                          >
-                            เลือกไฟล์
-                          </Button>
-                        </div>
+                        {qrCodeImage ? (
+                          <div className="text-center">
+                            <img 
+                              src={qrCodeImage} 
+                              alt="QR Code" 
+                              className="mx-auto w-48 h-48 border-2 border-gray-300 rounded-lg mb-3"
+                            />
+                            <label className="cursor-pointer">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  
+                                  const reader = new FileReader();
+                                  reader.onload = (event) => {
+                                    const imageUrl = event.target?.result as string;
+                                    // Store QR code in localStorage
+                                    localStorage.setItem('payment_qr_code', imageUrl);
+                                    setQrCodeImage(imageUrl);
+                                    
+                                    Swal.fire({
+                                      icon: 'success',
+                                      title: 'อัปโหลด QR Code เรียบร้อย',
+                                      text: 'QR Code สำหรับรับเงินได้รับการบันทึกแล้ว',
+                                      timer: 2000,
+                                      showConfirmButton: false,
+                                    });
+                                  };
+                                  reader.readAsDataURL(file);
+                                }}
+                              />
+                              <Button
+                                size="sm"
+                                color="primary"
+                                variant="bordered"
+                                as="span"
+                                className="mr-2"
+                              >
+                                เปลี่ยน QR Code
+                              </Button>
+                            </label>
+                            <Button
+                              size="sm"
+                              color="danger"
+                              variant="bordered"
+                              onClick={() => {
+                                localStorage.removeItem('payment_qr_code');
+                                setQrCodeImage(null);
+                                Swal.fire({
+                                  icon: 'success',
+                                  title: 'ลบ QR Code เรียบร้อย',
+                                  timer: 1500,
+                                  showConfirmButton: false,
+                                });
+                              }}
+                            >
+                              ลบ
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                            <PhotoIcon className="w-12 h-12 mx-auto text-gray-400 mb-2" />
+                            <p className="text-sm text-gray-600 mb-2">คลิกเพื่ออัปโหลด QR Code</p>
+                            <label className="cursor-pointer">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  
+                                  const reader = new FileReader();
+                                  reader.onload = (event) => {
+                                    const imageUrl = event.target?.result as string;
+                                    // Store QR code in localStorage
+                                    localStorage.setItem('payment_qr_code', imageUrl);
+                                    setQrCodeImage(imageUrl);
+                                    
+                                    Swal.fire({
+                                      icon: 'success',
+                                      title: 'อัปโหลด QR Code เรียบร้อย',
+                                      text: 'QR Code สำหรับรับเงินได้รับการบันทึกแล้ว',
+                                      timer: 2000,
+                                      showConfirmButton: false,
+                                    });
+                                  };
+                                  reader.readAsDataURL(file);
+                                }}
+                              />
+                              <Button
+                                size="sm"
+                                color="primary"
+                                variant="bordered"
+                                as="span"
+                              >
+                                เลือกไฟล์
+                              </Button>
+                            </label>
+                          </div>
+                        )}
                       </CardBody>
                     </Card>
 
@@ -1883,16 +1998,19 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                     ห้องเช่า
                   </button>
                 )}
-                <button
-                  onClick={() => setActiveTab('documents')}
-                  className={`px-4 py-2 text-sm font-medium transition-colors ${
-                    activeTab === 'documents'
-                      ? 'border-b-2 border-blue-600 text-blue-600'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  เอกสาร
-                </button>
+                {/* Documents tab - Only show for owner/admin */}
+                {(user?.role === 'owner' || user?.role === 'admin') && (
+                  <button
+                    onClick={() => setActiveTab('documents')}
+                    className={`px-4 py-2 text-sm font-medium transition-colors ${
+                      activeTab === 'documents'
+                        ? 'border-b-2 border-blue-600 text-blue-600'
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    เอกสาร
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2246,35 +2364,91 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="text-lg font-semibold text-gray-800">ประวัติการชำระเงิน</h4>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="bordered"
-                        startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
-                        onPress={() => {
-                          const allPayments = assetContracts.flatMap(c => 
-                            mockPayments.filter(p => p.contractId === c.id)
-                          );
-                          exportPaymentsToExcel(allPayments, assetContracts, [selectedAsset!], paymentFilters);
-                        }}
-                      >
-                        Excel
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="bordered"
-                        startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
-                        onPress={() => {
-                          const allPayments = assetContracts.flatMap(c => 
-                            mockPayments.filter(p => p.contractId === c.id)
-                          );
-                          exportPaymentsToPDF(allPayments, assetContracts, [selectedAsset!], paymentFilters);
-                        }}
-                      >
-                        PDF
-                      </Button>
-                    </div>
+                    {(user?.role === 'owner' || user?.role === 'admin') && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="bordered"
+                          startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
+                          onPress={() => {
+                            const allPayments = assetContracts.flatMap(c => 
+                              mockPayments.filter(p => p.contractId === c.id)
+                            );
+                            exportPaymentsToExcel(allPayments, assetContracts, [selectedAsset!], paymentFilters);
+                          }}
+                        >
+                          Excel
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="bordered"
+                          startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
+                          onPress={() => {
+                            const allPayments = assetContracts.flatMap(c => 
+                              mockPayments.filter(p => p.contractId === c.id)
+                            );
+                            exportPaymentsToPDF(allPayments, assetContracts, [selectedAsset!], paymentFilters);
+                          }}
+                        >
+                          PDF
+                        </Button>
+                      </div>
+                    )}
                   </div>
+                  
+                  {/* Tenant Payment Section - Show QR Code and Pay Button */}
+                  {user?.role === 'tenant' && assetContracts.length > 0 && (
+                    <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <h5 className="text-sm font-semibold text-blue-800 mb-3">ชำระเงิน</h5>
+                      {qrCodeImage ? (
+                        <div className="text-center mb-3">
+                          <p className="text-xs text-gray-600 mb-2">สแกน QR Code เพื่อชำระเงิน</p>
+                          <img 
+                            src={qrCodeImage} 
+                            alt="QR Code" 
+                            className="mx-auto w-48 h-48 border-2 border-gray-300 rounded-lg"
+                          />
+                        </div>
+                      ) : (
+                        <div className="text-center py-4 mb-3 bg-white rounded border-2 border-dashed border-gray-300">
+                          <p className="text-xs text-gray-500">ยังไม่มี QR Code</p>
+                          <p className="text-xs text-gray-400 mt-1">กรุณาติดต่อเจ้าของทรัพย์สินเพื่อเพิ่ม QR Code</p>
+                        </div>
+                      )}
+                      {assetPayments.filter(p => p.status === 'pending').length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-xs text-gray-600 mb-2">รายการที่ต้องชำระ:</p>
+                          {assetPayments.filter(p => p.status === 'pending').map(payment => {
+                            const contract = assetContracts.find(c => c.id === payment.contractId);
+                            return (
+                              <div key={payment.id} className="bg-white p-2 rounded mb-2 flex justify-between items-center">
+                                <div>
+                                  <p className="text-xs font-medium text-gray-800">
+                                    {payment.type === 'rent' ? 'ค่าเช่า' : payment.type === 'deposit' ? 'ค่ามัดจำ' : payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ'}
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    กำหนดชำระ: {new Date(payment.dueDate).toLocaleDateString('th-TH')}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-sm font-semibold text-blue-600">{formatCurrency(payment.amount)}</p>
+                                  <Button
+                                    size="sm"
+                                    color="primary"
+                                    variant="solid"
+                                    className="mt-1"
+                                    onPress={() => setSelectedPayment(payment)}
+                                  >
+                                    จ่ายเงิน
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Filters */}
                   <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
@@ -2736,10 +2910,225 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
               {/* Tab 4: การแจ้งซ่อม */}
               {activeTab === 'maintenance' && (
                 <div>
-                  <h4 className="text-lg font-semibold text-gray-800 mb-4">รายการแจ้งซ่อม</h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-lg font-semibold text-gray-800">รายการแจ้งซ่อม</h4>
+                    {user?.role === 'tenant' && (
+                      <Button
+                        size="sm"
+                        color="primary"
+                        startContent={<PlusIcon className="w-4 h-4" />}
+                        onPress={async () => {
+                          const { value: formData } = await Swal.fire({
+                            title: 'แจ้งซ่อม',
+                            html: `
+                              <div style="text-align: left;">
+                                <style>
+                                  .swal2-form-group {
+                                    margin-bottom: 1.5rem;
+                                  }
+                                  .swal2-form-label {
+                                    display: block;
+                                    margin-bottom: 0.5rem;
+                                    font-weight: 600;
+                                    color: #374151;
+                                    font-size: 14px;
+                                  }
+                                  .swal2-form-input, .swal2-form-select, .swal2-form-textarea {
+                                    width: 100%;
+                                    padding: 0.75rem;
+                                    border: 1px solid #d1d5db;
+                                    border-radius: 0.5rem;
+                                    font-size: 14px;
+                                    box-sizing: border-box;
+                                  }
+                                  .swal2-form-input:focus, .swal2-form-select:focus, .swal2-form-textarea:focus {
+                                    outline: none;
+                                    border-color: #3b82f6;
+                                    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+                                  }
+                                  .swal2-form-textarea {
+                                    resize: vertical;
+                                    min-height: 100px;
+                                  }
+                                </style>
+                                <div class="swal2-form-group">
+                                  <label class="swal2-form-label">หัวข้อ *</label>
+                                  <input id="swal-title" type="text" class="swal2-form-input" placeholder="เช่น น้ำรั่ว, ไฟไม่ติด" required>
+                                </div>
+                                <div class="swal2-form-group">
+                                  <label class="swal2-form-label">ประเภท *</label>
+                                  <select id="swal-type" class="swal2-form-select" required>
+                                    <option value="">เลือกประเภท</option>
+                                    <option value="repair">ซ่อมแซม</option>
+                                    <option value="routine">บำรุงรักษา</option>
+                                    <option value="emergency">ฉุกเฉิน</option>
+                                  </select>
+                                </div>
+                                <div class="swal2-form-group">
+                                  <label class="swal2-form-label">รายละเอียด *</label>
+                                  <textarea id="swal-description" class="swal2-form-textarea" placeholder="อธิบายปัญหาหรือสิ่งที่ต้องการซ่อม" required></textarea>
+                                </div>
+                              </div>
+                            `,
+                            showCancelButton: true,
+                            confirmButtonText: 'แจ้งซ่อม',
+                            cancelButtonText: 'ยกเลิก',
+                            confirmButtonColor: '#3b82f6',
+                            cancelButtonColor: '#6b7280',
+                            preConfirm: () => {
+                              const title = (document.getElementById('swal-title') as HTMLInputElement)?.value;
+                              const type = (document.getElementById('swal-type') as HTMLSelectElement)?.value;
+                              const description = (document.getElementById('swal-description') as HTMLTextAreaElement)?.value;
+                              
+                              if (!title || !type || !description) {
+                                Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วน');
+                                return false;
+                              }
+                              
+                              return { title, type, description };
+                            },
+                          });
+                          
+                          if (formData) {
+                            const { addMaintenance } = await import('@/lib/mockData');
+                            const newMaintenance = addMaintenance({
+                              assetId: selectedAsset!.id,
+                              assetName: selectedAsset!.name,
+                              type: formData.type as 'repair' | 'routine' | 'emergency',
+                              title: formData.title,
+                              description: formData.description,
+                              cost: 0,
+                              status: 'pending',
+                              reportedBy: user.id,
+                              reportedByName: user.name,
+                            });
+                            
+                            await Swal.fire({
+                              icon: 'success',
+                              title: 'แจ้งซ่อมเรียบร้อย',
+                              text: 'ได้แจ้งซ่อมเรียบร้อยแล้ว และได้แจ้งเตือนเจ้าของทรัพย์สินแล้ว',
+                              timer: 2000,
+                              showConfirmButton: false,
+                            });
+                            
+                            setAssetsRefreshKey(prev => prev + 1);
+                          }
+                        }}
+                      >
+                        แจ้งซ่อม
+                      </Button>
+                    )}
+                  </div>
                   {assetMaintenance.length === 0 ? (
                     <div className="text-center py-8 text-gray-500">
                       <p>ยังไม่มีรายการแจ้งซ่อม</p>
+                      {user?.role === 'tenant' && (
+                        <Button
+                          size="sm"
+                          color="primary"
+                          className="mt-4"
+                          startContent={<PlusIcon className="w-4 h-4" />}
+                          onPress={async () => {
+                            const { value: formData } = await Swal.fire({
+                              title: 'แจ้งซ่อม',
+                              html: `
+                                <div style="text-align: left;">
+                                  <style>
+                                    .swal2-form-group {
+                                      margin-bottom: 1.5rem;
+                                    }
+                                    .swal2-form-label {
+                                      display: block;
+                                      margin-bottom: 0.5rem;
+                                      font-weight: 600;
+                                      color: #374151;
+                                      font-size: 14px;
+                                    }
+                                    .swal2-form-input, .swal2-form-select, .swal2-form-textarea {
+                                      width: 100%;
+                                      padding: 0.75rem;
+                                      border: 1px solid #d1d5db;
+                                      border-radius: 0.5rem;
+                                      font-size: 14px;
+                                      box-sizing: border-box;
+                                    }
+                                    .swal2-form-input:focus, .swal2-form-select:focus, .swal2-form-textarea:focus {
+                                      outline: none;
+                                      border-color: #3b82f6;
+                                      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+                                    }
+                                    .swal2-form-textarea {
+                                      resize: vertical;
+                                      min-height: 100px;
+                                    }
+                                  </style>
+                                  <div class="swal2-form-group">
+                                    <label class="swal2-form-label">หัวข้อ *</label>
+                                    <input id="swal-title" type="text" class="swal2-form-input" placeholder="เช่น น้ำรั่ว, ไฟไม่ติด" required>
+                                  </div>
+                                  <div class="swal2-form-group">
+                                    <label class="swal2-form-label">ประเภท *</label>
+                                    <select id="swal-type" class="swal2-form-select" required>
+                                      <option value="">เลือกประเภท</option>
+                                      <option value="repair">ซ่อมแซม</option>
+                                      <option value="routine">บำรุงรักษา</option>
+                                      <option value="emergency">ฉุกเฉิน</option>
+                                    </select>
+                                  </div>
+                                  <div class="swal2-form-group">
+                                    <label class="swal2-form-label">รายละเอียด *</label>
+                                    <textarea id="swal-description" class="swal2-form-textarea" placeholder="อธิบายปัญหาหรือสิ่งที่ต้องการซ่อม" required></textarea>
+                                  </div>
+                                </div>
+                              `,
+                              showCancelButton: true,
+                              confirmButtonText: 'แจ้งซ่อม',
+                              cancelButtonText: 'ยกเลิก',
+                              confirmButtonColor: '#3b82f6',
+                              cancelButtonColor: '#6b7280',
+                              preConfirm: () => {
+                                const title = (document.getElementById('swal-title') as HTMLInputElement)?.value;
+                                const type = (document.getElementById('swal-type') as HTMLSelectElement)?.value;
+                                const description = (document.getElementById('swal-description') as HTMLTextAreaElement)?.value;
+                                
+                                if (!title || !type || !description) {
+                                  Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วน');
+                                  return false;
+                                }
+                                
+                                return { title, type, description };
+                              },
+                            });
+                            
+                            if (formData) {
+                              const { addMaintenance } = await import('@/lib/mockData');
+                              const newMaintenance = addMaintenance({
+                                assetId: selectedAsset!.id,
+                                assetName: selectedAsset!.name,
+                                type: formData.type as 'repair' | 'routine' | 'emergency',
+                                title: formData.title,
+                                description: formData.description,
+                                cost: 0,
+                                status: 'pending',
+                                reportedBy: user.id,
+                                reportedByName: user.name,
+                              });
+                              
+                              await Swal.fire({
+                                icon: 'success',
+                                title: 'แจ้งซ่อมเรียบร้อย',
+                                text: 'ได้แจ้งซ่อมเรียบร้อยแล้ว และได้แจ้งเตือนเจ้าของทรัพย์สินแล้ว',
+                                timer: 2000,
+                                showConfirmButton: false,
+                              });
+                              
+                              setAssetsRefreshKey(prev => prev + 1);
+                            }
+                          }}
+                        >
+                          แจ้งซ่อมแรก
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -3245,7 +3634,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                             if (formData) {
                               // Add documents to asset
                               const currentDocuments = selectedAsset.documents || [];
-                              const newDocuments = formData.files.map((file, index) => {
+                              const newDocuments = formData.files.map((file: { name: string; data: string; type: string }, index: number) => {
                                 const categoryPrefix = formData.documentCategory ? `${formData.documentCategory}_` : '';
                                 const fileName = formData.files.length > 1 
                                   ? `${formData.documentName}_${index + 1}`
@@ -3530,7 +3919,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
 
                               if (formData) {
                                 const currentDocuments = selectedAsset.documents || [];
-                                const newDocuments = formData.files.map((file, index) => {
+                                const newDocuments = formData.files.map((file: { name: string; data: string; type: string }, index: number) => {
                                   const categoryPrefix = formData.documentCategory ? `${formData.documentCategory}_` : '';
                                   const fileName = formData.files.length > 1 
                                     ? `${formData.documentName}_${index + 1}`

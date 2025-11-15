@@ -1130,20 +1130,39 @@ export const checkPaymentNotifications = (): void => {
       const asset = mockAssets.find(a => a.id === contract.assetId);
       if (!asset) return;
       
+      const tenantId = contract.tenantId;
+      if (!tenantId) return;
+      
       const dueDate = new Date(payment.dueDate);
       dueDate.setHours(0, 0, 0, 0);
       
-      const daysDiff = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+      const daysDiff = Math.floor((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       
       // Check if notification already exists for this payment
-      const existingNotification = mockNotifications.find(
-        n => n.type === 'payment_overdue' && n.relatedId === payment.id
+      const existingOverdueNotification = mockNotifications.find(
+        n => n.type === 'payment_overdue' && n.relatedId === payment.id && n.userId === tenantId
+      );
+      const existingDueSoonNotification = mockNotifications.find(
+        n => n.type === 'payment_due_soon' && n.relatedId === payment.id && n.userId === tenantId
+      );
+      const existingDueTodayNotification = mockNotifications.find(
+        n => n.type === 'payment_due' && n.relatedId === payment.id && n.userId === tenantId
       );
       
-      if (daysDiff === 0 && !existingNotification) {
+      if (daysDiff === 5 && !existingDueSoonNotification) {
+        // 5 days before due date - notify tenant
+        addNotification({
+          userId: tenantId,
+          type: 'payment_due_soon',
+          title: 'แจ้งเตือนการชำระเงิน',
+          message: `คุณมีรายการชำระเงินที่ต้องชำระในอีก 5 วัน\nจำนวนเงิน: ${payment.amount.toLocaleString('th-TH')} บาท\nกำหนดชำระ: ${new Date(payment.dueDate).toLocaleDateString('th-TH')}`,
+          relatedId: payment.id,
+          status: 'unread',
+        });
+      } else if (daysDiff === 0 && !existingDueTodayNotification) {
         // Due today
         notifyPaymentDue(payment, contract, asset);
-      } else if (daysDiff > 0 && !existingNotification) {
+      } else if (daysDiff < 0 && !existingOverdueNotification) {
         // Overdue
         notifyPaymentOverdue(payment, contract, asset);
       }

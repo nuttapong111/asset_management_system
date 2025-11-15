@@ -1,27 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { Asset } from '@/types/asset';
 import { formatCurrency, getStatusText } from '@/lib/utils';
-
-// Import MarkerClusterGroup dynamically
-let MarkerClusterGroup: any;
-if (typeof window !== 'undefined') {
-  const LMC = require('leaflet.markercluster');
-  MarkerClusterGroup = LMC.default || LMC;
-}
-
-// Fix for default marker icons in Next.js
-if (typeof window !== 'undefined') {
-  delete (L.Icon.Default.prototype as any)._getIconUrl;
-  L.Icon.Default.mergeOptions({
-    iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-    iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-  });
-}
 
 interface AssetsMapComponentProps {
   assets: Asset[];
@@ -30,14 +11,34 @@ interface AssetsMapComponentProps {
 
 export default function AssetsMapComponent({ assets, onMarkerClick }: AssetsMapComponentProps) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
-  const markersRef = useRef<L.MarkerClusterGroup | null>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<any>(null);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     if (!mapRef.current || mapInstanceRef.current) return;
 
-    // Initialize map centered on Bangkok
-    const map = L.map(mapRef.current).setView([13.7563, 100.5018], 11);
+    // Dynamically import leaflet
+    Promise.all([
+      import('leaflet'),
+      import('leaflet.markercluster'),
+      import('leaflet/dist/leaflet.css' as string),
+    ]).then(([leaflet, LMC]) => {
+      if (!mapRef.current) return;
+
+      const L = leaflet.default;
+      const MarkerClusterGroup = LMC.default || LMC;
+
+      // Fix for default marker icons in Next.js
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+      });
+
+      // Initialize map centered on Bangkok
+      const map = L.map(mapRef.current).setView([13.7563, 100.5018], 11);
 
     // Add tile layer (OpenStreetMap)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -176,24 +177,27 @@ export default function AssetsMapComponent({ assets, onMarkerClick }: AssetsMapC
         markers.addLayer(marker);
       });
 
-    // Add markers to map
-    map.addLayer(markers);
-    markersRef.current = markers;
-    mapInstanceRef.current = map;
+      // Add markers to map
+      map.addLayer(markers);
+      markersRef.current = markers;
+      mapInstanceRef.current = map;
 
-    // Fit bounds to show all assets
-    if (assets.filter(a => a.latitude && a.longitude).length > 0) {
-      const bounds = L.latLngBounds(
-        assets
-          .filter(a => a.latitude && a.longitude)
-          .map(a => [a.latitude!, a.longitude!] as [number, number])
-      );
-      map.fitBounds(bounds, { padding: [50, 50] });
-    }
+      // Fit bounds to show all assets
+      if (assets.filter(a => a.latitude && a.longitude).length > 0) {
+        const bounds = L.latLngBounds(
+          assets
+            .filter(a => a.latitude && a.longitude)
+            .map(a => [a.latitude!, a.longitude!] as [number, number])
+        );
+        map.fitBounds(bounds, { padding: [50, 50] });
+      }
+    }).catch((error) => {
+      console.error('Error loading leaflet:', error);
+    });
 
     return () => {
-      if (markersRef.current) {
-        map.removeLayer(markersRef.current);
+      if (markersRef.current && mapInstanceRef.current) {
+        mapInstanceRef.current.removeLayer(markersRef.current);
         markersRef.current = null;
       }
       if (mapInstanceRef.current) {

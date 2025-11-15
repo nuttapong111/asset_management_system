@@ -225,14 +225,14 @@ const generateReceipt = (params: DocumentExportParams) => {
       payment.type === 'rent' ? 'ค่าเช่า' : 
       payment.type === 'deposit' ? 'ค่ามัดจำ' : 
       payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ',
-      payment.amount,
+      payment.amount.toString(),
       payment.paidDate ? new Date(payment.paidDate).toLocaleDateString('th-TH') : '-'
     ]);
   });
   
   const totalAmount = paidPayments.reduce((sum, p) => sum + p.amount, 0);
   receiptData.push(['']);
-  receiptData.push(['รวมทั้งสิ้น', totalAmount]);
+  receiptData.push(['รวมทั้งสิ้น', totalAmount.toString()]);
   
   const receiptSheet = XLSX.utils.aoa_to_sheet(receiptData);
   XLSX.utils.book_append_sheet(workbook, receiptSheet, 'ใบเสร็จ');

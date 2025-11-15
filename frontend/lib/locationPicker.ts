@@ -35,7 +35,7 @@ export const showLocationPicker = async (
         // Dynamically import Leaflet and CSS
         Promise.all([
           import('leaflet'),
-          import('leaflet/dist/leaflet.css'),
+          import('leaflet/dist/leaflet.css' as string),
         ]).then(([L]) => {
           // Fix for default marker icons
           delete (L.Icon.Default.prototype as any)._getIconUrl;

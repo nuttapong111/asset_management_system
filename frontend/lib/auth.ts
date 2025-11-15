@@ -1,27 +1,20 @@
 import { User, LoginCredentials, AuthResponse } from '@/types/user';
-import { getUserByPhone } from './mockData';
+import { apiClient } from './api';
 
-// Simple mock authentication (จะเปลี่ยนเป็น API call จริงในภายหลัง)
+// API-based authentication
 export const login = async (credentials: LoginCredentials): Promise<AuthResponse | null> => {
-  const user = getUserByPhone(credentials.phone);
-  
-  if (!user || user.password !== credentials.password) {
+  try {
+    const response = await apiClient.login(credentials.phone, credentials.password);
+    apiClient.setToken(response.token);
+    return response;
+  } catch (error) {
+    console.error('Login error:', error);
     return null;
   }
-
-  // Mock token
-  const token = `mock_token_${user.id}_${Date.now()}`;
-
-  return {
-    user: {
-      ...user,
-      password: '', // ไม่ส่ง password กลับ
-    },
-    token,
-  };
 };
 
 export const logout = () => {
+  apiClient.setToken(null);
   if (typeof window !== 'undefined') {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user');
@@ -45,6 +38,7 @@ export const getStoredToken = (): string | null => {
 };
 
 export const storeAuth = (user: User, token: string) => {
+  apiClient.setToken(token);
   if (typeof window !== 'undefined') {
     localStorage.setItem('user', JSON.stringify(user));
     localStorage.setItem('auth_token', token);

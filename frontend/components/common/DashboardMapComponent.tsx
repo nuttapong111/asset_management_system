@@ -98,7 +98,7 @@ export default function DashboardMapComponent({ assets, stats, statCards }: Dash
       }).addTo(map);
 
       // Create marker cluster group
-      const markers = new MarkerClusterGroup({
+      const markers = new (MarkerClusterGroup as any)({
         chunkedLoading: true,
         spiderfyOnMaxZoom: true,
         showCoverageOnHover: false,

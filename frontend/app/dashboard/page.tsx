@@ -161,6 +161,13 @@ export default function DashboardPage() {
     });
   }, []);
 
+  // For admin, redirect to summary page instead of showing map
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      router.push('/admin/summary');
+    }
+  }, [user, router]);
+
   if (!user) return null;
 
   const getDashboardTitle = (role: UserRole) => {
@@ -207,13 +214,6 @@ export default function DashboardPage() {
   ].filter(card => !card.hide);
 
   const assetsWithLocation = assets.filter(asset => asset.latitude && asset.longitude);
-
-  // For admin, redirect to summary page instead of showing map
-  useEffect(() => {
-    if (user?.role === 'admin') {
-      router.push('/admin/summary');
-    }
-  }, [user, router]);
 
   if (user?.role === 'admin') {
     return (

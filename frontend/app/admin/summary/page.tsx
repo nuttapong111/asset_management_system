@@ -94,6 +94,8 @@ export default function AdminSummaryPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {statCards.map((card, index) => {
             const Icon = card.icon;
+            const bgColorClass = card.color === 'blue' ? 'bg-blue-100' : card.color === 'green' ? 'bg-green-100' : 'bg-purple-100';
+            const textColorClass = card.color === 'blue' ? 'text-blue-600' : card.color === 'green' ? 'text-green-600' : 'text-purple-600';
             return (
               <Card key={index} className="shadow-lg">
                 <CardBody className="p-6">
@@ -102,8 +104,8 @@ export default function AdminSummaryPage() {
                       <p className="text-sm text-gray-600 mb-2">{card.title}</p>
                       <p className="text-3xl font-bold text-gray-800">{card.value}</p>
                     </div>
-                    <div className={`p-4 rounded-full bg-${card.color}-100`}>
-                      <Icon className={`w-8 h-8 text-${card.color}-600`} />
+                    <div className={`p-4 rounded-full ${bgColorClass}`}>
+                      <Icon className={`w-8 h-8 ${textColorClass}`} />
                     </div>
                   </div>
                 </CardBody>

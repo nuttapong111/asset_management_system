@@ -201,7 +201,7 @@ export default function DashboardMapComponent({ assets, stats, statCards }: Dash
       }
 
       // Add stats button icon on map
-      const statsButton = L.control({ position: 'topright' });
+      const statsButton = (L.control as any)({ position: 'topright' });
       statsButton.onAdd = function() {
         const div = L.DomUtil.create('div', 'stats-button-container');
         div.style.cssText = 'margin: 10px;';

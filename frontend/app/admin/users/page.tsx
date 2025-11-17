@@ -10,8 +10,8 @@ import {
   TrashIcon,
   UserGroupIcon
 } from '@heroicons/react/24/outline';
-import { getStoredUser } from '@/lib/auth';
-import { mockUsers, updateUser, deleteUser, addUser } from '@/lib/mockData';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
 import { User } from '@/types/user';
 import Swal from 'sweetalert2';
 
@@ -22,17 +22,28 @@ export default function AdminUsersPage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    const currentUser = getStoredUser();
-    setUser(currentUser);
+    const loadData = async () => {
+      try {
+        const currentUser = getStoredUser();
+        const token = getStoredToken();
 
-    if (!currentUser || currentUser.role !== 'admin') {
-      router.push('/login');
-      return;
-    }
+        if (!currentUser || currentUser.role !== 'admin' || !token) {
+          router.push('/login');
+          return;
+        }
 
-    // Filter only owner users
-    const ownerUsers = mockUsers.filter(u => u.role === 'owner');
-    setOwners(ownerUsers);
+        setUser(currentUser);
+        apiClient.setToken(token);
+
+        // Load owner users from API
+        const ownerUsers = await apiClient.getUsers('owner');
+        setOwners(ownerUsers);
+      } catch (error) {
+        console.error('Error loading users:', error);
+      }
+    };
+
+    loadData();
   }, [router, refreshKey]);
 
   const handleAddOwner = async () => {
@@ -98,26 +109,22 @@ export default function AdminUsersPage() {
           return false;
         }
 
-        // Check if phone already exists
-        if (mockUsers.find(u => u.phone === phone)) {
-          Swal.showValidationMessage('เบอร์โทรศัพท์นี้มีอยู่ในระบบแล้ว');
-          return false;
-        }
+        // Phone validation will be done by backend
 
         return { name, phone, email, password };
       },
     });
 
     if (formData) {
-      const newOwner = addUser({
-        phone: formData.phone,
-        password: formData.password,
-        role: 'owner',
-        name: formData.name,
-        email: formData.email || undefined,
-      });
+      try {
+        await apiClient.createUser({
+          phone: formData.phone,
+          password: formData.password,
+          role: 'owner',
+          name: formData.name,
+          email: formData.email || undefined,
+        });
 
-      if (newOwner) {
         await Swal.fire({
           icon: 'success',
           title: 'เพิ่ม Owner เรียบร้อย',
@@ -126,6 +133,12 @@ export default function AdminUsersPage() {
           showConfirmButton: false,
         });
         setRefreshKey(prev => prev + 1);
+      } catch (error: any) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: error.message || 'ไม่สามารถเพิ่ม Owner ได้',
+        });
       }
     }
   };
@@ -193,26 +206,26 @@ export default function AdminUsersPage() {
           return false;
         }
 
-        // Check if phone already exists (excluding current user)
-        const existingUser = mockUsers.find(u => u.phone === phone && u.id !== owner.id);
-        if (existingUser) {
-          Swal.showValidationMessage('เบอร์โทรศัพท์นี้มีอยู่ในระบบแล้ว');
-          return false;
-        }
+        // Phone validation will be done by backend
 
         return { name, phone, email, password };
       },
     });
 
     if (formData) {
-      const updated = updateUser(owner.id, {
-        name: formData.name,
-        phone: formData.phone,
-        email: formData.email || undefined,
-        password: formData.password || owner.password,
-      });
+      try {
+        const updateData: any = {
+          name: formData.name,
+          phone: formData.phone,
+          email: formData.email || undefined,
+        };
+        
+        if (formData.password) {
+          updateData.password = formData.password;
+        }
 
-      if (updated) {
+        await apiClient.updateUser(owner.id, updateData);
+
         await Swal.fire({
           icon: 'success',
           title: 'อัปเดตข้อมูลเรียบร้อย',
@@ -221,6 +234,12 @@ export default function AdminUsersPage() {
           showConfirmButton: false,
         });
         setRefreshKey(prev => prev + 1);
+      } catch (error: any) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: error.message || 'ไม่สามารถอัปเดตข้อมูล Owner ได้',
+        });
       }
     }
   };
@@ -238,8 +257,8 @@ export default function AdminUsersPage() {
     });
 
     if (result.isConfirmed) {
-      const deleted = deleteUser(owner.id);
-      if (deleted) {
+      try {
+        await apiClient.deleteUser(owner.id);
         await Swal.fire({
           icon: 'success',
           title: 'ลบ Owner เรียบร้อย',
@@ -248,6 +267,12 @@ export default function AdminUsersPage() {
           showConfirmButton: false,
         });
         setRefreshKey(prev => prev + 1);
+      } catch (error: any) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: error.message || 'ไม่สามารถลบ Owner ได้',
+        });
       }
     }
   };

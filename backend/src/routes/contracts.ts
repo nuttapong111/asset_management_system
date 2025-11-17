@@ -149,6 +149,21 @@ contracts.post('/', requireRole('owner', 'admin'), async (c) => {
       ]
     );
 
+    // Update asset status to 'rented' if contract is active and within date range
+    if (data.status === 'active') {
+      const today = new Date().toISOString().split('T')[0];
+      const startDate = data.startDate;
+      const endDate = data.endDate;
+      
+      // Only update to 'rented' if contract is within date range
+      if (startDate <= today && endDate >= today) {
+        await pool.query(
+          'UPDATE assets SET status = $1 WHERE id = $2',
+          ['rented', data.assetId]
+        );
+      }
+    }
+
     // Get asset and tenant names
     const assetResult2 = await pool.query('SELECT name FROM assets WHERE id = $1', [data.assetId]);
     const tenantResult2 = await pool.query('SELECT name FROM users WHERE id = $1', [data.tenantId]);
@@ -247,13 +262,51 @@ contracts.put('/:id', requireRole('owner', 'admin'), async (c) => {
     const query = `UPDATE contracts SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
 
     const result = await pool.query(query, values);
+    const contractRow = result.rows[0];
+
+    // Update asset status based on contract status
+    const today = new Date().toISOString().split('T')[0];
+    
+    if (data.status === 'active') {
+      // Set asset to 'rented' if contract becomes active and within date range
+      const startDate = data.startDate || contractRow.start_date;
+      const endDate = data.endDate || contractRow.end_date;
+      
+      if (startDate <= today && endDate >= today) {
+        await pool.query(
+          'UPDATE assets SET status = $1 WHERE id = $2',
+          ['rented', contractRow.asset_id]
+        );
+      }
+    } else if (data.status === 'terminated' || data.status === 'expired') {
+      // Set asset to 'available' if contract is terminated or expired
+      // Check if there are other active contracts within date range for this asset
+      const activeContractsResult = await pool.query(
+        `SELECT COUNT(*) as count 
+         FROM contracts 
+         WHERE asset_id = $1 
+           AND status = 'active' 
+           AND id != $3
+           AND start_date <= $2
+           AND end_date >= $2`,
+        [contractRow.asset_id, today, id]
+      );
+      const activeContractsCount = parseInt(activeContractsResult.rows[0]?.count || '0');
+      
+      if (activeContractsCount === 0) {
+        await pool.query(
+          'UPDATE assets SET status = $1 WHERE id = $2',
+          ['available', contractRow.asset_id]
+        );
+      }
+    }
 
     // Get asset and tenant names
-    const assetResult = await pool.query('SELECT name FROM assets WHERE id = $1', [result.rows[0].asset_id]);
-    const tenantResult = await pool.query('SELECT name FROM users WHERE id = $1', [result.rows[0].tenant_id]);
+    const assetResult = await pool.query('SELECT name FROM assets WHERE id = $1', [contractRow.asset_id]);
+    const tenantResult = await pool.query('SELECT name FROM users WHERE id = $1', [contractRow.tenant_id]);
 
     const contract = transformContract(
-      result.rows[0],
+      contractRow,
       assetResult.rows[0]?.name,
       tenantResult.rows[0]?.name
     );

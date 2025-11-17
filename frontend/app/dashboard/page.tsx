@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/components/common/Layout';
 import { Card, CardBody } from '@heroui/react';
@@ -10,16 +10,8 @@ import {
   CurrencyDollarIcon,
   WrenchScrewdriverIcon
 } from '@heroicons/react/24/outline';
-import { getStoredUser } from '@/lib/auth';
-import { 
-  mockAssets, 
-  mockContracts, 
-  mockFinancialRecords, 
-  mockMaintenance,
-  mockPayments,
-  getAssetsByOwner,
-  getContractsByTenant 
-} from '@/lib/mockData';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { UserRole } from '@/types/user';
 import DashboardMapComponent from '@/components/common/DashboardMapComponentV2';
@@ -49,117 +41,78 @@ export default function DashboardPage() {
     collectedThisMonth: 0,
     overdueAmount: 0,
   });
-  const [assets, setAssets] = useState(mockAssets);
+  const [assets, setAssets] = useState<any[]>([]);
   const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [maintenance, setMaintenance] = useState<any[]>([]);
+
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
-    const currentUser = getStoredUser();
-    setUser(currentUser);
+    // Prevent duplicate loads
+    if (hasLoadedRef.current) return;
     
-    if (!currentUser) return;
-
-    let userAssets = mockAssets;
-    let contracts = mockContracts;
-    let maintenance = mockMaintenance;
-    let payments = mockPayments;
-
-    if (currentUser.role === 'owner') {
-      userAssets = getAssetsByOwner(currentUser.id);
-      // Filter contracts and payments for owner's assets
-      const assetIds = userAssets.map(a => a.id);
-      contracts = contracts.filter(c => assetIds.includes(c.assetId));
-      payments = payments.filter(p => {
-        const contract = contracts.find(c => c.id === p.contractId);
-        return contract && assetIds.includes(contract.assetId);
-      });
-    } else if (currentUser.role === 'tenant') {
-      contracts = getContractsByTenant(currentUser.id);
-      const contractIds = contracts.map(c => c.id);
-      payments = payments.filter(p => contractIds.includes(p.contractId));
-    }
-
-    setAssets(userAssets);
-
-    // Calculate basic stats
-    const income = mockFinancialRecords
-      .filter(r => r.type === 'income')
-      .reduce((sum, r) => sum + r.amount, 0);
-
-    const pending = maintenance.filter(m => 
-      m.status === 'pending' || m.status === 'in_progress'
-    ).length;
-
-    // Calculate assets by type
-    const assetsByType = {
-      house: userAssets.filter(a => a.type === 'house').length,
-      condo: userAssets.filter(a => a.type === 'condo').length,
-      apartment: userAssets.filter(a => a.type === 'apartment').length,
-      land: userAssets.filter(a => a.type === 'land').length,
-    };
-
-    // Calculate assets by status
-    const assetsByStatus = {
-      available: userAssets.filter(a => a.status === 'available').length,
-      rented: userAssets.filter(a => a.status === 'rented').length,
-      maintenance: userAssets.filter(a => a.status === 'maintenance').length,
-    };
-
-    // Calculate payment stats
-    const paidCount = payments.filter(p => p.status === 'paid').length;
-    const overdueCount = payments.filter(p => {
-      if (p.status === 'overdue') return true;
-      if (p.status === 'pending') {
-        const dueDate = new Date(p.dueDate);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return dueDate < today;
-      }
-      return false;
-    }).length;
-
-    // Calculate monthly income (from active contracts)
-    const activeContracts = contracts.filter(c => c.status === 'active');
-    const monthlyIncome = activeContracts.reduce((sum, c) => sum + c.rentAmount, 0);
-
-    // Calculate collected this month
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
-    const collectedThisMonth = payments
-      .filter(p => {
-        if (p.status !== 'paid' || !p.paidDate) return false;
-        const paidDate = new Date(p.paidDate);
-        return paidDate.getMonth() === currentMonth && paidDate.getFullYear() === currentYear;
-      })
-      .reduce((sum, p) => sum + p.amount, 0);
-
-    // Calculate overdue amount
-    const overdueAmount = payments
-      .filter(p => {
-        if (p.status === 'overdue') return true;
-        if (p.status === 'pending') {
-          const dueDate = new Date(p.dueDate);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          return dueDate < today;
+    const loadData = async () => {
+      try {
+        const currentUser = getStoredUser();
+        const token = getStoredToken();
+        
+        if (!currentUser || !token) {
+          router.push('/login');
+          return;
         }
-        return false;
-      })
-      .reduce((sum, p) => sum + p.amount, 0);
 
-    setStats({
-      totalAssets: userAssets.length,
-      totalContracts: contracts.length,
-      totalIncome: income,
-      pendingMaintenance: pending,
-      assetsByType,
-      assetsByStatus,
-      paidCount,
-      overdueCount,
-      monthlyIncome,
-      collectedThisMonth,
-      overdueAmount,
-    });
-  }, []);
+        hasLoadedRef.current = true;
+        setUser(currentUser);
+        apiClient.setToken(token);
+
+        // Load dashboard stats
+        const dashboardStats = await apiClient.getDashboardStats();
+        
+        // Load assets
+        const userAssets = await apiClient.getAssets();
+        setAssets(userAssets);
+
+        // Load maintenance
+        const maintenanceData = await apiClient.getMaintenance();
+        setMaintenance(maintenanceData);
+
+        // Calculate assets by type
+        const assetsByType = {
+          house: userAssets.filter((a: any) => a.type === 'house').length,
+          condo: userAssets.filter((a: any) => a.type === 'condo').length,
+          apartment: userAssets.filter((a: any) => a.type === 'apartment').length,
+          land: userAssets.filter((a: any) => a.type === 'land').length,
+        };
+
+        setStats({
+          totalAssets: dashboardStats.totalAssets || userAssets.length,
+          totalContracts: dashboardStats.totalContracts || 0,
+          totalIncome: 0, // Will be calculated from financial records if needed
+          pendingMaintenance: dashboardStats.pendingMaintenance || maintenanceData.filter((m: any) => 
+            m.status === 'pending' || m.status === 'in_progress'
+          ).length,
+          assetsByType,
+          assetsByStatus: dashboardStats.assetsByStatus || {
+            available: userAssets.filter((a: any) => a.status === 'available').length,
+            rented: userAssets.filter((a: any) => a.status === 'rented').length,
+            maintenance: userAssets.filter((a: any) => a.status === 'maintenance').length,
+          },
+          paidCount: dashboardStats.paidCount || 0,
+          overdueCount: dashboardStats.overdueCount || 0,
+          monthlyIncome: dashboardStats.monthlyIncome || 0,
+          collectedThisMonth: 0, // Can be calculated from payments if needed
+          overdueAmount: 0, // Can be calculated from payments if needed
+        });
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []); // Remove router from dependencies
 
   // For admin, redirect to summary page instead of showing map
   useEffect(() => {
@@ -168,7 +121,18 @@ export default function DashboardPage() {
     }
   }, [user, router]);
 
-  if (!user) return null;
+  if (!user || loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+            <p className="mt-4 text-gray-600">กำลังโหลดข้อมูล...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   const getDashboardTitle = (role: UserRole) => {
     switch (role) {
@@ -235,7 +199,7 @@ export default function DashboardPage() {
           assets={assetsWithLocation} 
           stats={stats}
           statCards={statCards}
-          maintenance={mockMaintenance}
+          maintenance={maintenance}
         />
       </div>
     </Layout>

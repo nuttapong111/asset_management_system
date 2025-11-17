@@ -1,14 +1,15 @@
 import Swal from 'sweetalert2';
 import { Asset, AssetType, AssetStatus } from '@/types/asset';
-import { mockAssets, updateAsset, addAsset } from '@/lib/mockData';
-import { getStoredUser } from '@/lib/auth';
-import { showLocationPicker } from '@/lib/locationPicker';
+import { apiClient } from './api';
+import { getStoredUser, getStoredToken } from './auth';
+import { showLocationPicker } from './locationPicker';
 
 interface AssetFormData {
   name: string;
   type: AssetType;
   address: string;
   district: string;
+  amphoe: string;
   province: string;
   postalCode: string;
   size: string;
@@ -27,7 +28,16 @@ export const showAssetForm = async (
   initialLocation?: { lat: number; lng: number }
 ): Promise<Asset | null> => {
   const user = getStoredUser();
-  if (!user) return null;
+  const token = getStoredToken();
+  if (!user || !token) {
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: 'กรุณาเข้าสู่ระบบใหม่',
+    });
+    return null;
+  }
+  apiClient.setToken(token);
 
   // Initialize form data
   const initialData: AssetFormData = asset
@@ -36,6 +46,7 @@ export const showAssetForm = async (
         type: asset.type,
         address: asset.address,
         district: asset.district,
+        amphoe: asset.amphoe || '',
         province: asset.province,
         postalCode: asset.postalCode,
         size: asset.size.toString(),
@@ -52,6 +63,7 @@ export const showAssetForm = async (
         type: 'house',
         address: '',
         district: '',
+        amphoe: '',
         province: '',
         postalCode: '',
         size: '',
@@ -200,11 +212,18 @@ export const showAssetForm = async (
           <input id="swal-address" type="text" class="swal2-form-input" value="${initialData.address}" placeholder="เลขที่ ถนน">
         </div>
         
-        <div class="swal2-form-grid-3">
+        <div class="swal2-form-grid-2">
           <div class="swal2-form-group">
             <label class="swal2-form-label">แขวง/ตำบล</label>
             <input id="swal-district" type="text" class="swal2-form-input" value="${initialData.district}" placeholder="แขวง/ตำบล">
           </div>
+          <div class="swal2-form-group">
+            <label class="swal2-form-label">อำเภอ/เขต</label>
+            <input id="swal-amphoe" type="text" class="swal2-form-input" value="${initialData.amphoe}" placeholder="อำเภอ/เขต">
+          </div>
+        </div>
+        
+        <div class="swal2-form-grid-2">
           <div class="swal2-form-group">
             <label class="swal2-form-label">จังหวัด</label>
             <input id="swal-province" type="text" class="swal2-form-input" value="${initialData.province}" placeholder="จังหวัด">
@@ -279,8 +298,233 @@ export const showAssetForm = async (
           if (location) {
             (document.getElementById('swal-latitude') as HTMLInputElement).value = location.lat.toFixed(8);
             (document.getElementById('swal-longitude') as HTMLInputElement).value = location.lng.toFixed(8);
+            
+            // Auto-fill address fields if available
+            // หมายเหตุ: ตำบล/แขวง (district) ไม่ auto-fill ให้ผู้ใช้กรอกเอง
+            if (location.address) {
+              const addressInput = document.getElementById('swal-address') as HTMLInputElement;
+              if (addressInput && !addressInput.value.trim()) {
+                addressInput.value = location.address;
+              }
+            }
+            // district ไม่ auto-fill - ให้ผู้ใช้กรอกเอง
+            if (location.amphoe) {
+              const amphoeInput = document.getElementById('swal-amphoe') as HTMLInputElement;
+              if (amphoeInput && !amphoeInput.value.trim()) {
+                amphoeInput.value = location.amphoe;
+              }
+            }
+            if (location.province) {
+              const provinceInput = document.getElementById('swal-province') as HTMLInputElement;
+              if (provinceInput && !provinceInput.value.trim()) {
+                provinceInput.value = location.province;
+              }
+            }
+            if (location.postalCode) {
+              const postalCodeInput = document.getElementById('swal-postalCode') as HTMLInputElement;
+              if (postalCodeInput && !postalCodeInput.value.trim()) {
+                postalCodeInput.value = location.postalCode;
+              }
+            }
           }
         });
+      }
+      
+      // Also handle when location is selected from map click (for new assets)
+      if (!asset && initialLocation) {
+        // Auto-fill address when initial location is provided
+        const reverseGeocode = async (lat: number, lng: number) => {
+          try {
+            const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1&accept-language=th`,
+              {
+                headers: {
+                  'User-Agent': 'AssetManagementSystem/1.0',
+                },
+              }
+            );
+            
+            if (!response.ok) return;
+            
+            const data = await response.json();
+            if (!data.address) return;
+            
+            const addr = data.address;
+            
+            // Debug: Log Nominatim response
+            console.log('=== Nominatim Reverse Geocoding Debug (Asset Form) ===');
+            console.log('Full response:', data);
+            console.log('display_name:', data.display_name);
+            console.log('address object:', addr);
+            console.log('addr.suburb:', addr.suburb);
+            console.log('addr.village:', addr.village);
+            console.log('addr.town:', addr.town);
+            console.log('addr.county:', addr.county);
+            console.log('addr.city_district:', addr.city_district);
+            
+            // Parse display_name เพื่อดึงข้อมูลที่ถูกต้อง
+            const displayParts = data.display_name ? data.display_name.split(',').map(p => p.trim()) : [];
+            console.log('displayParts:', displayParts);
+            
+            // อำเภอ/เขต (amphoe/khet) - ระดับกลาง
+            // ในกรุงเทพ: city_district = เขต, ในจังหวัดอื่น: county = อำเภอ
+            let amphoe = addr.city_district || addr.county || '';
+            
+            // ถ้า amphoe มีคำว่า "เขต" ให้เก็บไว้ (เช่น "เขตประเวศ" ถูกต้อง)
+            // แต่ถ้าไม่มี city_district/county ลองหาจาก display_name
+            if (!amphoe) {
+              for (const part of displayParts) {
+                if (part.includes('เขต') && !part.includes('แขวง') && !part.includes('ตำบล')) {
+                  amphoe = part.replace(/^.*?เขต\s*/, '').trim();
+                  break;
+                } else if (part.includes('อำเภอ')) {
+                  amphoe = part.replace(/^.*?อำเภอ\s*/, '').trim();
+                  break;
+                }
+              }
+            }
+            
+            // แขวง/ตำบล (sub-district) - ระดับที่เล็กที่สุด
+            // ให้ความสำคัญกับ display_name ก่อน เพราะ Nominatim อาจจะ return suburb ผิด
+            let district = '';
+            
+            // หาแขวง/ตำบลจาก display_name ก่อน (ให้ความสำคัญสูงสุด)
+            // เพราะ display_name มักจะถูกต้องกว่า address object
+            for (let i = 0; i < displayParts.length; i++) {
+              const part = displayParts[i];
+              
+              // หาแขวง (กรุงเทพ) - ต้องมีคำว่า "แขวง" และไม่มีคำว่า "เขต" หรือ "ตำบล"
+              if (part.includes('แขวง') && !part.includes('เขต') && !part.includes('ตำบล')) {
+                // Extract แขวง โดยลบคำว่า "แขวง" ออก
+                district = part.replace(/^.*?แขวง\s*/, '').trim();
+                // ถ้ายังมีคำว่า "เขต" อยู่ แสดงว่าอาจจะ parse ผิด
+                if (district.includes('เขต')) {
+                  district = district.replace(/เขต.*$/, '').trim();
+                }
+                // ถ้ายังมีคำว่า "อำเภอ" อยู่ แสดงว่าอาจจะ parse ผิด
+                if (district.includes('อำเภอ')) {
+                  district = district.replace(/อำเภอ.*$/, '').trim();
+                }
+                break;
+              }
+              // หาตำบล (จังหวัดอื่น) - ต้องมีคำว่า "ตำบล" และไม่มีคำว่า "อำเภอ" หรือ "เขต"
+              else if (part.includes('ตำบล') && !part.includes('อำเภอ') && !part.includes('เขต')) {
+                // Extract ตำบล โดยลบคำว่า "ตำบล" ออก
+                district = part.replace(/^.*?ตำบล\s*/, '').trim();
+                // ถ้ายังมีคำว่า "อำเภอ" อยู่ แสดงว่าอาจจะ parse ผิด
+                if (district.includes('อำเภอ')) {
+                  district = district.replace(/อำเภอ.*$/, '').trim();
+                }
+                // ถ้ายังมีคำว่า "เขต" อยู่ แสดงว่าอาจจะ parse ผิด
+                if (district.includes('เขต')) {
+                  district = district.replace(/เขต.*$/, '').trim();
+                }
+                break;
+              }
+            }
+            
+            // ถ้ายังหาไม่เจอจาก display_name ลองใช้ address object
+            if (!district) {
+              if (addr.suburb && !addr.suburb.includes('อำเภอ') && !addr.suburb.includes('เขต')) {
+                district = addr.suburb;
+              } else if (addr.village && !addr.village.includes('อำเภอ') && !addr.village.includes('เขต')) {
+                district = addr.village;
+              } else if (addr.town && !addr.town.includes('อำเภอ') && !addr.town.includes('เขต')) {
+                district = addr.town;
+              }
+            }
+            
+            // ถ้ายังหาไม่เจอ ลองหาจากส่วนที่อยู่ก่อนอำเภอ/เขตใน display_name
+            if (!district) {
+              for (let i = 0; i < displayParts.length; i++) {
+                const part = displayParts[i];
+                
+                // ถ้าพบอำเภอหรือเขต ให้ดูส่วนก่อนหน้านี้
+                if ((part.includes('อำเภอ') || part.includes('เขต')) && i > 0) {
+                  const prevPart = displayParts[i - 1];
+                  // ถ้าส่วนก่อนหน้าไม่ใช่ถนนหรือเลขที่ และไม่มีคำว่า "อำเภอ" หรือ "เขต" หรือ "จังหวัด"
+                  if (prevPart && 
+                      !prevPart.includes('ถนน') && 
+                      !prevPart.includes('เลขที่') && 
+                      !prevPart.includes('อำเภอ') && 
+                      !prevPart.includes('เขต') &&
+                      !prevPart.includes('จังหวัด') &&
+                      !prevPart.includes('แขวง') &&
+                      !prevPart.includes('ตำบล')) {
+                    district = prevPart.trim();
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // จังหวัด (province) - ระดับใหญ่ที่สุด
+            let province = addr.state || addr.province || '';
+            
+            // ถ้าไม่มี province ลองหาจาก display_name
+            if (!province) {
+              for (const part of displayParts) {
+                if (part.includes('กรุงเทพ') || part.includes('มหานคร')) {
+                  province = 'กรุงเทพมหานคร';
+                  break;
+                } else if (part.includes('จังหวัด')) {
+                  province = part.replace(/^.*?จังหวัด\s*/, '').trim();
+                  break;
+                }
+              }
+              // ถ้ายังไม่มี ลองหาจากส่วนท้ายๆ ของ display_name
+              if (!province && displayParts.length > 0) {
+                const lastPart = displayParts[displayParts.length - 1];
+                if (lastPart.includes('ประเทศไทย')) {
+                  // ลองหาจากส่วนก่อนหน้า
+                  if (displayParts.length > 1) {
+                    const secondLast = displayParts[displayParts.length - 2];
+                    if (secondLast && !secondLast.includes('เขต') && !secondLast.includes('แขวง') && !secondLast.includes('ตำบล')) {
+                      province = secondLast;
+                    }
+                  }
+                }
+              }
+            }
+            
+            const postalCode = addr.postcode || '';
+            const addressParts = [
+              addr.house_number || addr.house_name || '',
+              addr.road || addr.street || '',
+            ].filter(Boolean);
+            const address = addressParts.join(' ') || addr.display_name?.split(',')[0] || '';
+            
+            // Debug: Log parsed results
+            console.log('=== Parsed Results (Asset Form) ===');
+            console.log('district (ตำบล/แขวง):', district);
+            console.log('amphoe (อำเภอ/เขต):', amphoe);
+            console.log('province (จังหวัด):', province);
+            console.log('postalCode:', postalCode);
+            console.log('address:', address);
+            console.log('==========================================');
+            
+            // Fill in the form fields
+            // หมายเหตุ: ตำบล/แขวง (district) ไม่ auto-fill ให้ผู้ใช้กรอกเอง
+            setTimeout(() => {
+              const addressInput = document.getElementById('swal-address') as HTMLInputElement;
+              const amphoeInput = document.getElementById('swal-amphoe') as HTMLInputElement;
+              const provinceInput = document.getElementById('swal-province') as HTMLInputElement;
+              const postalCodeInput = document.getElementById('swal-postalCode') as HTMLInputElement;
+              
+              if (addressInput && address.trim()) addressInput.value = address.trim();
+              // district ไม่ auto-fill - ให้ผู้ใช้กรอกเอง
+              if (amphoeInput && amphoe.trim()) amphoeInput.value = amphoe.trim();
+              if (provinceInput && province.trim()) provinceInput.value = province.trim();
+              if (postalCodeInput && postalCode.trim()) postalCodeInput.value = postalCode.trim();
+            }, 500);
+          } catch (error) {
+            console.error('Error reverse geocoding:', error);
+          }
+        };
+        
+        if (initialLocation.lat && initialLocation.lng) {
+          reverseGeocode(initialLocation.lat, initialLocation.lng);
+        }
       }
     },
     preConfirm: () => {
@@ -288,6 +532,7 @@ export const showAssetForm = async (
       const type = (document.getElementById('swal-type') as HTMLSelectElement)?.value as AssetType || 'house';
       const address = (document.getElementById('swal-address') as HTMLInputElement)?.value || '';
       const district = (document.getElementById('swal-district') as HTMLInputElement)?.value || '';
+      const amphoe = (document.getElementById('swal-amphoe') as HTMLInputElement)?.value || '';
       const province = (document.getElementById('swal-province') as HTMLInputElement)?.value || '';
       const postalCode = (document.getElementById('swal-postalCode') as HTMLInputElement)?.value || '';
       const size = (document.getElementById('swal-size') as HTMLInputElement)?.value || '';
@@ -348,6 +593,7 @@ export const showAssetForm = async (
         type,
         address: address.trim(),
         district: district.trim(),
+        amphoe: amphoe.trim(),
         province: province.trim(),
         postalCode: postalCode.trim(),
         size: parseFloat(size),
@@ -370,27 +616,21 @@ export const showAssetForm = async (
   try {
     let savedAsset: Asset;
 
-    if (asset) {
-      const updatedAsset = updateAsset(asset.id, {
-        ...formValues,
-        size: typeof formValues.size === 'string' ? parseFloat(formValues.size) : formValues.size,
-        rooms: typeof formValues.rooms === 'string' ? parseInt(formValues.rooms) : formValues.rooms,
-        purchasePrice: typeof formValues.purchasePrice === 'string' ? parseFloat(formValues.purchasePrice) : formValues.purchasePrice,
-        currentValue: typeof formValues.currentValue === 'string' ? parseFloat(formValues.currentValue) : formValues.currentValue,
-        latitude: formValues.latitude ? (typeof formValues.latitude === 'string' ? parseFloat(formValues.latitude) : formValues.latitude) : undefined,
-        longitude: formValues.longitude ? (typeof formValues.longitude === 'string' ? parseFloat(formValues.longitude) : formValues.longitude) : undefined,
-      } as Partial<Asset>);
-      
-      if (!updatedAsset) {
-        await Swal.fire({
-          icon: 'error',
-          title: 'เกิดข้อผิดพลาด',
-          text: 'ไม่พบข้อมูลทรัพย์สิน',
-        });
-        return null;
-      }
+    const assetData: any = {
+      ...formValues,
+      size: typeof formValues.size === 'string' ? parseFloat(formValues.size) : formValues.size,
+      rooms: typeof formValues.rooms === 'string' ? parseInt(formValues.rooms) : formValues.rooms,
+      purchasePrice: typeof formValues.purchasePrice === 'string' ? parseFloat(formValues.purchasePrice) : formValues.purchasePrice,
+      currentValue: typeof formValues.currentValue === 'string' ? parseFloat(formValues.currentValue) : formValues.currentValue,
+      latitude: formValues.latitude ? (typeof formValues.latitude === 'string' ? parseFloat(formValues.latitude) : formValues.latitude) : undefined,
+      longitude: formValues.longitude ? (typeof formValues.longitude === 'string' ? parseFloat(formValues.longitude) : formValues.longitude) : undefined,
+      images: asset?.images || [],
+      documents: asset?.documents || [],
+      isParent: formValues.isParent || false,
+    };
 
-      savedAsset = updatedAsset;
+    if (asset) {
+      savedAsset = await apiClient.updateAsset(asset.id, assetData);
       await Swal.fire({
         icon: 'success',
         title: 'อัปเดตข้อมูลเรียบร้อย',
@@ -399,21 +639,9 @@ export const showAssetForm = async (
         showConfirmButton: false,
       });
     } else {
-      savedAsset = addAsset({
-        ...formValues,
-        size: typeof formValues.size === 'string' ? parseFloat(formValues.size) : formValues.size,
-        rooms: typeof formValues.rooms === 'string' ? parseInt(formValues.rooms) : formValues.rooms,
-        purchasePrice: typeof formValues.purchasePrice === 'string' ? parseFloat(formValues.purchasePrice) : formValues.purchasePrice,
-        currentValue: typeof formValues.currentValue === 'string' ? parseFloat(formValues.currentValue) : formValues.currentValue,
-        latitude: formValues.latitude ? (typeof formValues.latitude === 'string' ? parseFloat(formValues.latitude) : formValues.latitude) : undefined,
-        longitude: formValues.longitude ? (typeof formValues.longitude === 'string' ? parseFloat(formValues.longitude) : formValues.longitude) : undefined,
-        ownerId: user.id,
-        images: [],
-        documents: [],
-        isParent: formValues.isParent || false,
-        totalUnits: formValues.isParent ? 0 : undefined,
-        childAssets: formValues.isParent ? [] : undefined,
-      });
+      assetData.totalUnits = formValues.isParent ? 0 : undefined;
+      assetData.childAssets = formValues.isParent ? [] : undefined;
+      savedAsset = await apiClient.createAsset(assetData);
       await Swal.fire({
         icon: 'success',
         title: 'เพิ่มทรัพย์สินเรียบร้อย',
@@ -424,11 +652,11 @@ export const showAssetForm = async (
     }
 
     return savedAsset;
-  } catch (error) {
+  } catch (error: any) {
     await Swal.fire({
       icon: 'error',
       title: 'เกิดข้อผิดพลาด',
-      text: 'ไม่สามารถบันทึกข้อมูลได้',
+      text: error.message || 'ไม่สามารถบันทึกข้อมูลได้',
     });
     return null;
   }

@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/components/common/Layout';
 import { Card, CardBody, Button, Chip } from '@heroui/react';
 import { PlusIcon, MapPinIcon, ListBulletIcon, Squares2X2Icon } from '@heroicons/react/24/outline';
-import { mockAssets, getAssetsByOwner } from '@/lib/mockData';
-import { getStoredUser } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
 import { formatCurrency, getStatusText, getStatusColor } from '@/lib/utils';
 import { Asset } from '@/types/asset';
 import AssetsMapComponent from '@/components/common/AssetsMapComponent';
@@ -22,13 +22,22 @@ export default function AssetsPage() {
   const user = getStoredUser();
 
   useEffect(() => {
-    if (!user) return;
+    const loadAssets = async () => {
+      if (!user) return;
 
-    if (user.role === 'owner') {
-      setAssets(getAssetsByOwner(user.id));
-    } else if (user.role === 'admin') {
-      setAssets(mockAssets);
-    }
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        apiClient.setToken(token);
+        
+        const assetsData = await apiClient.getAssets();
+        setAssets(assetsData);
+      } catch (error) {
+        console.error('Error loading assets:', error);
+      }
+    };
+
+    loadAssets();
   }, [user]);
 
   const getStatusChipColor = (status: string) => {

@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import Layout from '@/components/common/Layout';
 import { Card, CardBody, CardHeader, Button, Chip, Table, TableHeader, TableColumn, TableBody, TableRow, TableCell } from '@heroui/react';
 import { PlusIcon, WrenchScrewdriverIcon } from '@heroicons/react/24/outline';
-import { mockMaintenance } from '@/lib/mockData';
-import { getStoredUser } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
 import { formatCurrency, formatDate, getStatusText, getStatusColor } from '@/lib/utils';
 import { Maintenance } from '@/types/maintenance';
 
@@ -14,8 +14,22 @@ export default function MaintenancePage() {
   const user = getStoredUser();
 
   useEffect(() => {
-    if (!user) return;
-    setMaintenance(mockMaintenance);
+    const loadMaintenance = async () => {
+      if (!user) return;
+
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        apiClient.setToken(token);
+        
+        const maintenanceData = await apiClient.getMaintenance();
+        setMaintenance(maintenanceData);
+      } catch (error) {
+        console.error('Error loading maintenance:', error);
+      }
+    };
+
+    loadMaintenance();
   }, [user]);
 
   const getStatusChipColor = (status: string) => {

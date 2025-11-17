@@ -42,7 +42,7 @@ dashboard.get('/', async (c) => {
 
       // Contracts
       let contractQuery = `
-        SELECT COUNT(*) as total, status FROM contracts c
+        SELECT COUNT(*) as total, c.status FROM contracts c
         INNER JOIN assets a ON a.id = c.asset_id
       `;
       const contractParams: any[] = [];
@@ -53,14 +53,14 @@ dashboard.get('/', async (c) => {
         contractParams.push(user.id);
       }
 
-      contractQuery += ' GROUP BY status';
+      contractQuery += ' GROUP BY c.status';
 
       const contractResult = await pool.query(contractQuery, contractParams);
       const totalContracts = contractResult.rows.reduce((sum, row) => sum + parseInt(row.total), 0);
 
       // Payments
       let paymentQuery = `
-        SELECT COUNT(*) as total, status, SUM(amount) as total_amount
+        SELECT COUNT(*) as total, p.status, SUM(p.amount) as total_amount
         FROM payments p
         INNER JOIN contracts c ON c.id = p.contract_id
         INNER JOIN assets a ON a.id = c.asset_id
@@ -69,15 +69,16 @@ dashboard.get('/', async (c) => {
       paramIndex = 1;
 
       if (user.role === 'owner') {
-        paymentQuery += ` WHERE a.owner_id = $${paramIndex++}`;
+        paymentQuery += ` WHERE a.owner_id = $${paramIndex}`;
         paymentParams.push(user.id);
+        paramIndex++;
       }
 
-      paymentQuery += ' GROUP BY status';
+      paymentQuery += ' GROUP BY p.status';
 
       const paymentResult = await pool.query(paymentQuery, paymentParams);
-      const paidCount = paymentResult.rows.find(r => r.status === 'paid')?.total || 0;
-      const overdueCount = paymentResult.rows.find(r => r.status === 'overdue')?.total || 0;
+      const paidCount = paymentResult.rows.find(r => r.status === 'paid')?.total || '0';
+      const overdueCount = paymentResult.rows.find(r => r.status === 'overdue')?.total || '0';
 
       // Monthly income from active contracts
       let incomeQuery = `
@@ -156,9 +157,10 @@ dashboard.get('/', async (c) => {
     }
 
     return c.json(stats);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get dashboard error:', error);
-    return c.json({ error: 'Internal server error' }, 500);
+    console.error('Error stack:', error?.stack);
+    return c.json({ error: 'Internal server error', details: error?.message }, 500);
   }
 });
 

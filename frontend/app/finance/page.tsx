@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import Layout from '@/components/common/Layout';
 import { Card, CardBody, CardHeader, Tabs, Tab, Table, TableHeader, TableColumn, TableBody, TableRow, TableCell, Chip } from '@heroui/react';
 import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/solid';
-import { mockFinancialRecords, mockPayments } from '@/lib/mockData';
-import { getStoredUser } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
 import { formatCurrency, formatDate, getStatusText, getStatusColor } from '@/lib/utils';
 import { FinancialRecord, Payment } from '@/types/finance';
 
@@ -17,18 +17,34 @@ export default function FinancePage() {
   const user = getStoredUser();
 
   useEffect(() => {
-    if (!user) return;
+    const loadData = async () => {
+      if (!user) return;
 
-    const incomeRecords = mockFinancialRecords.filter(r => r.type === 'income');
-    const expenseRecords = mockFinancialRecords.filter(r => r.type === 'expense');
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        apiClient.setToken(token);
+        
+        const paymentsData = await apiClient.getPayments();
+        setPayments(paymentsData);
+        
+        // Calculate income from paid payments
+        const paidPayments = paymentsData.filter((p: Payment) => p.status === 'paid');
+        const totalIncome = paidPayments.reduce((sum: number, p: Payment) => sum + p.amount, 0);
+        
+        // For now, expense is 0 (can be calculated from maintenance costs if needed)
+        const totalExpense = 0;
+        
+        setIncome(totalIncome);
+        setExpense(totalExpense);
+        // Financial records can be calculated from payments and maintenance
+        setRecords([]);
+      } catch (error) {
+        console.error('Error loading finance data:', error);
+      }
+    };
 
-    const totalIncome = incomeRecords.reduce((sum, r) => sum + r.amount, 0);
-    const totalExpense = expenseRecords.reduce((sum, r) => sum + r.amount, 0);
-
-    setIncome(totalIncome);
-    setExpense(totalExpense);
-    setRecords(mockFinancialRecords);
-    setPayments(mockPayments);
+    loadData();
   }, [user]);
 
   const profit = income - expense;

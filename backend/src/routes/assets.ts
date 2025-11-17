@@ -14,6 +14,7 @@ const createAssetSchema = z.object({
   name: z.string().min(1),
   address: z.string().min(1),
   district: z.string().min(1),
+  amphoe: z.string().optional().default(''), // Allow empty string, will default to empty if not provided
   province: z.string().min(1),
   postalCode: z.string().min(5),
   size: z.number().positive(),
@@ -124,12 +125,12 @@ assets.post('/', requireRole('owner', 'admin'), async (c) => {
 
     const result = await pool.query(
       `INSERT INTO assets (
-        owner_id, type, name, address, district, province, postal_code,
+        owner_id, type, name, address, district, amphoe, province, postal_code,
         size, rooms, purchase_price, current_value, status,
         images, documents, latitude, longitude, description,
-        parent_asset_id, is_parent, unit_number, total_units, development_history
+        parent_asset_id, is_parent, child_assets, unit_number, total_units, development_history
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
       ) RETURNING *`,
       [
         ownerId,
@@ -137,6 +138,7 @@ assets.post('/', requireRole('owner', 'admin'), async (c) => {
         data.name,
         data.address,
         data.district,
+        data.amphoe || '', // Ensure it's not null or undefined
         data.province,
         data.postalCode,
         data.size,
@@ -151,6 +153,7 @@ assets.post('/', requireRole('owner', 'admin'), async (c) => {
         data.description || null,
         data.parentAssetId || null,
         data.isParent,
+        data.childAssets || [], // child_assets
         data.unitNumber || null,
         data.totalUnits || null,
         data.developmentHistory ? JSON.stringify(data.developmentHistory) : null,
@@ -164,7 +167,14 @@ assets.post('/', requireRole('owner', 'admin'), async (c) => {
       return c.json({ error: 'Invalid input', details: error.errors }, 400);
     }
     console.error('Create asset error:', error);
-    return c.json({ error: 'Internal server error' }, 500);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('Error details:', { errorMessage, errorStack });
+    return c.json({ 
+      error: 'Internal server error', 
+      details: errorMessage,
+      stack: process.env.NODE_ENV === 'development' ? errorStack : undefined
+    }, 500);
   }
 });
 

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255),
   avatar TEXT,
   address JSONB,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS assets (
   name VARCHAR(255) NOT NULL,
   address TEXT NOT NULL,
   district VARCHAR(100) NOT NULL,
+  amphoe VARCHAR(100) NOT NULL,
   province VARCHAR(100) NOT NULL,
   postal_code VARCHAR(10) NOT NULL,
   size DECIMAL(10, 2) NOT NULL,
@@ -123,6 +125,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 -- Indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_created_by ON users(created_by);
 CREATE INDEX IF NOT EXISTS idx_assets_owner_id ON assets(owner_id);
 CREATE INDEX IF NOT EXISTS idx_assets_status ON assets(status);
 CREATE INDEX IF NOT EXISTS idx_assets_parent_id ON assets(parent_asset_id);

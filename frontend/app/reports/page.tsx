@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import Layout from '@/components/common/Layout';
 import { Card, CardBody, CardHeader, Tabs, Tab } from '@heroui/react';
-import { mockAssets, mockContracts, mockFinancialRecords } from '@/lib/mockData';
-import { getStoredUser } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
 import { formatCurrency } from '@/lib/utils';
 
 export default function ReportsPage() {
@@ -19,35 +19,49 @@ export default function ReportsPage() {
   const user = getStoredUser();
 
   useEffect(() => {
-    if (!user || (user.role !== 'owner' && user.role !== 'admin')) return;
+    const loadData = async () => {
+      if (!user || (user.role !== 'owner' && user.role !== 'admin')) return;
 
-    const rentedAssets = mockAssets.filter(a => a.status === 'rented').length;
-    const occupancyRate = mockAssets.length > 0 
-      ? (rentedAssets / mockAssets.length) * 100 
-      : 0;
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        apiClient.setToken(token);
+        
+        const [assetsData, contractsData, paymentsData] = await Promise.all([
+          apiClient.getAssets(),
+          apiClient.getContracts(),
+          apiClient.getPayments(),
+        ]);
 
-    const income = mockFinancialRecords
-      .filter(r => r.type === 'income')
-      .reduce((sum, r) => sum + r.amount, 0);
+        const rentedAssets = assetsData.filter((a: any) => a.status === 'rented').length;
+        const occupancyRate = assetsData.length > 0 
+          ? (rentedAssets / assetsData.length) * 100 
+          : 0;
 
-    const expense = mockFinancialRecords
-      .filter(r => r.type === 'expense')
-      .reduce((sum, r) => sum + r.amount, 0);
+        const paidPayments = paymentsData.filter((p: any) => p.status === 'paid');
+        const income = paidPayments.reduce((sum: number, p: any) => sum + p.amount, 0);
+        const expense = 0; // Can be calculated from maintenance costs if needed
 
-    const totalInvestment = mockAssets.reduce((sum, a) => sum + a.purchasePrice, 0);
-    const totalValue = mockAssets.reduce((sum, a) => sum + a.currentValue, 0);
-    const roi = totalInvestment > 0 
-      ? ((totalValue - totalInvestment) / totalInvestment) * 100 
-      : 0;
+        const totalInvestment = assetsData.reduce((sum: number, a: any) => sum + (a.purchasePrice || 0), 0);
+        const totalValue = assetsData.reduce((sum: number, a: any) => sum + (a.currentValue || 0), 0);
+        const roi = totalInvestment > 0 
+          ? ((totalValue - totalInvestment) / totalInvestment) * 100 
+          : 0;
 
-    setStats({
-      totalAssets: mockAssets.length,
-      totalContracts: mockContracts.length,
-      occupancyRate,
-      totalIncome: income,
-      totalExpense: expense,
-      roi,
-    });
+        setStats({
+          totalAssets: assetsData.length,
+          totalContracts: contractsData.length,
+          occupancyRate,
+          totalIncome: income,
+          totalExpense: expense,
+          roi,
+        });
+      } catch (error) {
+        console.error('Error loading reports data:', error);
+      }
+    };
+
+    loadData();
   }, [user]);
 
   if (!user || (user.role !== 'owner' && user.role !== 'admin')) {

@@ -13,7 +13,8 @@ export interface Asset {
   type: AssetType;
   name: string;
   address: string;
-  district: string;
+  district: string; // แขวง/ตำบล
+  amphoe: string; // อำเภอ/เขต
   province: string;
   postalCode: string;
   size: number; // ตารางเมตร

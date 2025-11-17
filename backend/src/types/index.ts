@@ -50,6 +50,7 @@ export interface Asset {
   name: string;
   address: string;
   district: string;
+  amphoe: string;
   province: string;
   postalCode: string;
   size: number;
@@ -79,6 +80,7 @@ export interface AssetDB {
   name: string;
   address: string;
   district: string;
+  amphoe: string;
   province: string;
   postal_code: string;
   size: number;

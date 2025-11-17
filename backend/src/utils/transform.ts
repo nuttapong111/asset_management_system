@@ -23,6 +23,7 @@ export function transformAsset(asset: AssetDB): Asset {
     name: asset.name,
     address: asset.address,
     district: asset.district,
+    amphoe: asset.amphoe,
     province: asset.province,
     postalCode: asset.postal_code,
     size: Number(asset.size),

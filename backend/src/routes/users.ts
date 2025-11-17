@@ -43,17 +43,39 @@ const updateUserSchema = z.object({
   }).optional(),
 });
 
-// GET /api/users - Get all users (admin only) or owners (admin only)
-users.get('/', requireRole('admin'), async (c) => {
+// GET /api/users - Get users based on role
+// - Admin: can get all users or filter by role
+// - Owner: can only get tenants (for creating contracts)
+// - Tenant: cannot access this endpoint
+users.get('/', async (c) => {
   try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
     const role = c.req.query('role'); // Filter by role if provided
     
     let query = 'SELECT * FROM users';
     const params: any[] = [];
+    let paramIndex = 1;
     
-    if (role && ['owner', 'tenant', 'admin'].includes(role)) {
-      query += ' WHERE role = $1';
-      params.push(role);
+    // Admin can get all users or filter by any role
+    if (user.role === 'admin') {
+      if (role && ['owner', 'tenant', 'admin'].includes(role)) {
+        query += ` WHERE role = $${paramIndex++}`;
+        params.push(role);
+      }
+    }
+    // Owner can only get tenants that they created
+    else if (user.role === 'owner') {
+      query += ` WHERE role = $${paramIndex++} AND created_by = $${paramIndex++}`;
+      params.push('tenant');
+      params.push(user.id);
+    }
+    // Tenant cannot access this endpoint
+    else {
+      return c.json({ error: 'Forbidden' }, 403);
     }
     
     query += ' ORDER BY created_at DESC';
@@ -77,32 +99,108 @@ users.get('/:id', async (c) => {
     const id = c.req.param('id');
     const currentUser = c.get('user');
 
-    // Users can only view their own profile unless admin
-    if (currentUser?.role !== 'admin' && currentUser?.id !== id) {
-      return c.json({ error: 'Forbidden' }, 403);
+    if (!currentUser) {
+      return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
-
-    if (result.rows.length === 0) {
-      return c.json({ error: 'User not found' }, 404);
+    // Admin can view any user
+    if (currentUser.role === 'admin') {
+      const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+      if (result.rows.length === 0) {
+        return c.json({ error: 'User not found' }, 404);
+      }
+      const user = transformUser(result.rows[0]);
+      const { password, ...userWithoutPassword } = user;
+      return c.json(userWithoutPassword);
     }
 
-    const user = transformUser(result.rows[0]);
-    const { password, ...userWithoutPassword } = user;
+    // Users can view their own profile
+    if (currentUser.id === id) {
+      const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+      if (result.rows.length === 0) {
+        return c.json({ error: 'User not found' }, 404);
+      }
+      const user = transformUser(result.rows[0]);
+      const { password, ...userWithoutPassword } = user;
+      return c.json(userWithoutPassword);
+    }
 
-    return c.json(userWithoutPassword);
+    // Owner can view tenant information if they have contracts with them
+    if (currentUser.role === 'owner') {
+      // Check if the requested user is a tenant and has contracts with owner's assets
+      const contractCheck = await pool.query(
+        `SELECT COUNT(*) as count 
+         FROM contracts c
+         INNER JOIN assets a ON a.id = c.asset_id
+         WHERE c.tenant_id = $1 AND a.owner_id = $2`,
+        [id, currentUser.id]
+      );
+      
+      const hasContract = parseInt(contractCheck.rows[0]?.count || '0') > 0;
+      
+      if (hasContract) {
+        const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+        if (result.rows.length === 0) {
+          return c.json({ error: 'User not found' }, 404);
+        }
+        const user = transformUser(result.rows[0]);
+        const { password, ...userWithoutPassword } = user;
+        return c.json(userWithoutPassword);
+      }
+    }
+
+    // Tenant can view owner information if they have contracts with owner's assets
+    if (currentUser.role === 'tenant') {
+      const contractCheck = await pool.query(
+        `SELECT COUNT(*) as count 
+         FROM contracts c
+         INNER JOIN assets a ON a.id = c.asset_id
+         WHERE c.tenant_id = $1 AND a.owner_id = $2`,
+        [currentUser.id, id]
+      );
+      
+      const hasContract = parseInt(contractCheck.rows[0]?.count || '0') > 0;
+      
+      if (hasContract) {
+        const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+        if (result.rows.length === 0) {
+          return c.json({ error: 'User not found' }, 404);
+        }
+        const user = transformUser(result.rows[0]);
+        const { password, ...userWithoutPassword } = user;
+        return c.json(userWithoutPassword);
+      }
+    }
+
+    return c.json({ error: 'Forbidden' }, 403);
   } catch (error) {
     console.error('Get user error:', error);
     return c.json({ error: 'Internal server error' }, 500);
   }
 });
 
-// POST /api/users - Create user (admin only, for creating owners)
-users.post('/', requireRole('admin'), async (c) => {
+// POST /api/users - Create user
+// - Admin can create any role (owner, tenant, admin)
+// - Owner can only create tenants
+users.post('/', async (c) => {
   try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
     const body = await c.req.json();
     const data = createUserSchema.parse(body);
+
+    // Owner can only create tenants
+    if (user.role === 'owner' && data.role !== 'tenant') {
+      return c.json({ error: 'Owners can only create tenants' }, 403);
+    }
+
+    // Tenant cannot create users
+    if (user.role === 'tenant') {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
 
     // Check if phone already exists
     const existing = await pool.query('SELECT id FROM users WHERE phone = $1', [data.phone]);
@@ -113,9 +211,12 @@ users.post('/', requireRole('admin'), async (c) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
+    // Set created_by if owner is creating a tenant
+    const createdBy = (user.role === 'owner' && data.role === 'tenant') ? user.id : null;
+
     const result = await pool.query(
-      `INSERT INTO users (phone, password, role, name, email, address)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO users (phone, password, role, name, email, address, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
       [
         data.phone,
@@ -124,11 +225,12 @@ users.post('/', requireRole('admin'), async (c) => {
         data.name,
         data.email || null,
         data.address ? JSON.stringify(data.address) : null,
+        createdBy,
       ]
     );
 
-    const user = transformUser(result.rows[0]);
-    const { password, ...userWithoutPassword } = user;
+    const newUser = transformUser(result.rows[0]);
+    const { password, ...userWithoutPassword } = newUser;
 
     return c.json(userWithoutPassword, 201);
   } catch (error) {
@@ -217,18 +319,44 @@ users.put('/:id', async (c) => {
   }
 });
 
-// DELETE /api/users/:id - Delete user (admin only)
-users.delete('/:id', requireRole('admin'), async (c) => {
+// DELETE /api/users/:id - Delete user
+// - Admin can delete any user
+// - Owner can delete any tenant (they can create tenants, so they can delete them too)
+users.delete('/:id', async (c) => {
   try {
     const id = c.req.param('id');
+    const currentUser = c.get('user');
+    
+    if (!currentUser) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
 
-    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
-
-    if (result.rows.length === 0) {
+    // Get user to delete
+    const userToDeleteResult = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    if (userToDeleteResult.rows.length === 0) {
       return c.json({ error: 'User not found' }, 404);
     }
 
-    return c.json({ message: 'User deleted successfully' });
+    const userToDelete = userToDeleteResult.rows[0];
+
+    // Admin can delete any user
+    if (currentUser.role === 'admin') {
+      const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
+      return c.json({ message: 'User deleted successfully' });
+    }
+
+    // Owner can delete any tenant (they can create tenants, so they can delete them too)
+    if (currentUser.role === 'owner') {
+      if (userToDelete.role !== 'tenant') {
+        return c.json({ error: 'Owners can only delete tenants' }, 403);
+      }
+
+      const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
+      return c.json({ message: 'User deleted successfully' });
+    }
+
+    // Tenant cannot delete users
+    return c.json({ error: 'Forbidden' }, 403);
   } catch (error) {
     console.error('Delete user error:', error);
     return c.json({ error: 'Internal server error' }, 500);

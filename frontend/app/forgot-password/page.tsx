@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Input, Button, Card, CardBody } from '@heroui/react';
 import { BuildingOfficeIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
-import { getUserByPhone } from '@/lib/mockData';
+import { apiClient } from '@/lib/api';
 import Swal from 'sweetalert2';
 import Link from 'next/link';
 
@@ -18,32 +18,23 @@ export default function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      const user = getUserByPhone(phone);
+      await apiClient.forgotPassword(phone);
       
-      if (user) {
-        // ในระบบจริงจะส่ง OTP หรือลิงก์รีเซ็ตรหัสผ่านไปที่อีเมล/เบอร์โทร
-        await Swal.fire({
-          icon: 'success',
-          title: 'ส่งข้อมูลสำเร็จ',
-          html: `
-            <p>ระบบได้ส่งข้อมูลรีเซ็ตรหัสผ่านไปยังเบอร์โทร <strong>${phone}</strong> แล้ว</p>
-            <p class="mt-2 text-sm text-gray-600">กรุณาตรวจสอบข้อความ SMS</p>
-          `,
-        });
-        
-        router.push('/login');
-      } else {
-        await Swal.fire({
-          icon: 'error',
-          title: 'ไม่พบข้อมูล',
-          text: 'ไม่พบเบอร์โทรศัพท์นี้ในระบบ',
-        });
-      }
-    } catch (error) {
+      await Swal.fire({
+        icon: 'success',
+        title: 'ส่งข้อมูลสำเร็จ',
+        html: `
+          <p>ระบบได้ส่งข้อมูลรีเซ็ตรหัสผ่านไปยังเบอร์โทร <strong>${phone}</strong> แล้ว</p>
+          <p class="mt-2 text-sm text-gray-600">กรุณาตรวจสอบข้อความ SMS</p>
+        `,
+      });
+      
+      router.push('/login');
+    } catch (error: any) {
       await Swal.fire({
         icon: 'error',
         title: 'เกิดข้อผิดพลาด',
-        text: 'กรุณาลองใหม่อีกครั้ง',
+        text: error.message || 'ไม่พบเบอร์โทรศัพท์นี้ในระบบ',
       });
     } finally {
       setLoading(false);

@@ -10,8 +10,8 @@ import {
   UsersIcon,
   ChartBarIcon
 } from '@heroicons/react/24/outline';
-import { getStoredUser } from '@/lib/auth';
-import { mockUsers, mockAssets, mockContracts } from '@/lib/mockData';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
 
 interface UserActivity {
   hour: number;
@@ -29,30 +29,34 @@ export default function AdminSummaryPage() {
   });
 
   useEffect(() => {
-    const currentUser = getStoredUser();
-    setUser(currentUser);
+    const loadData = async () => {
+      try {
+        const currentUser = getStoredUser();
+        const token = getStoredToken();
 
-    if (!currentUser || currentUser.role !== 'admin') {
-      router.push('/login');
-      return;
-    }
+        if (!currentUser || currentUser.role !== 'admin' || !token) {
+          router.push('/login');
+          return;
+        }
 
-    // Calculate stats
-    const owners = mockUsers.filter(u => u.role === 'owner');
-    const tenants = mockUsers.filter(u => u.role === 'tenant');
-    
-    // Mock user activity by hour (0-23)
-    const activity: UserActivity[] = Array.from({ length: 24 }, (_, i) => ({
-      hour: i,
-      count: Math.floor(Math.random() * 50) + 10, // Mock data
-    }));
+        setUser(currentUser);
+        apiClient.setToken(token);
 
-    setStats({
-      totalOwners: owners.length,
-      totalTenants: tenants.length,
-      totalAssets: mockAssets.length,
-      userActivity: activity,
-    });
+        // Load admin summary from API
+        const summaryData = await apiClient.getAdminSummary();
+
+        setStats({
+          totalOwners: summaryData.totalOwners || 0,
+          totalTenants: summaryData.totalTenants || 0,
+          totalAssets: summaryData.totalAssets || 0,
+          userActivity: summaryData.userActivity || [],
+        });
+      } catch (error) {
+        console.error('Error loading admin summary:', error);
+      }
+    };
+
+    loadData();
   }, [router]);
 
   if (!user || user.role !== 'admin') {
@@ -187,7 +191,7 @@ export default function AdminSummaryPage() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">จำนวนสัญญาเช่าทั้งหมด</span>
-                  <span className="text-lg font-semibold text-gray-800">{mockContracts.length} สัญญา</span>
+                  <span className="text-lg font-semibold text-gray-800">- สัญญา</span>
                 </div>
               </div>
             </CardBody>

@@ -5,8 +5,8 @@ import { useParams } from 'next/navigation';
 import Layout from '@/components/common/Layout';
 import { Card, CardBody, CardHeader, Button, Chip, Tabs, Tab } from '@heroui/react';
 import { MapPinIcon, PencilIcon } from '@heroicons/react/24/outline';
-import { mockAssets } from '@/lib/mockData';
-import { getStoredUser } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
 import { formatCurrency, getStatusText, getStatusColor } from '@/lib/utils';
 import { Asset } from '@/types/asset';
 import dynamic from 'next/dynamic';
@@ -22,8 +22,23 @@ export default function AssetDetailPage() {
   const user = getStoredUser();
 
   useEffect(() => {
-    const foundAsset = mockAssets.find(a => a.id === params.id);
-    setAsset(foundAsset || null);
+    const loadAsset = async () => {
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        apiClient.setToken(token);
+        
+        const assetData = await apiClient.getAsset(params.id as string);
+        setAsset(assetData);
+      } catch (error) {
+        console.error('Error loading asset:', error);
+        setAsset(null);
+      }
+    };
+
+    if (params.id) {
+      loadAsset();
+    }
   }, [params.id]);
 
   if (!asset) {

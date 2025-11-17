@@ -14,9 +14,9 @@ import {
   UserCircleIcon,
   ChevronDownIcon
 } from '@heroicons/react/24/outline';
-import { logout, getStoredUser } from '@/lib/auth';
+import { logout, getStoredUser, getStoredToken } from '@/lib/auth';
 import { UserRole } from '@/types/user';
-import { getUnreadNotificationsCount, getNotificationsByUser, markNotificationAsRead } from '@/lib/mockData';
+import { apiClient } from '@/lib/api';
 
 interface MenuItem {
   name: string;
@@ -36,11 +36,36 @@ const menuItems: MenuItem[] = [
 
 // Notification List Component
 function NotificationList({ userId, onClose }: { userId: string; onClose: () => void }) {
-  const notifications = getNotificationsByUser(userId);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const router = useRouter();
 
-  const handleNotificationClick = (notification: any) => {
-    markNotificationAsRead(notification.id);
+  useEffect(() => {
+    const loadNotifications = async () => {
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        apiClient.setToken(token);
+        const data = await apiClient.getNotifications();
+        setNotifications(data);
+      } catch (error) {
+        console.error('Error loading notifications:', error);
+      }
+    };
+    loadNotifications();
+  }, []);
+
+  const handleNotificationClick = async (notification: any) => {
+    try {
+      const token = getStoredToken();
+      if (!token) return;
+      apiClient.setToken(token);
+      await apiClient.markNotificationRead(notification.id);
+      // Reload notifications
+      const data = await apiClient.getNotifications();
+      setNotifications(data);
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
     onClose();
     
     // Navigate based on notification type
@@ -127,19 +152,42 @@ export default function Header() {
     };
   }, [isDropdownOpen, isNotificationOpen]);
 
+  // Track if we've loaded the count
+  const hasLoadedCountRef = useRef(false);
+  const lastUpdateTimeRef = useRef<number>(0);
+
   // Update unread notifications count
   useEffect(() => {
-    if (user) {
-      const updateCount = () => {
-        const count = getUnreadNotificationsCount(user.id);
-        setUnreadCount(count);
-      };
+    if (!user) return;
+    
+    const updateCount = async () => {
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        
+        // Prevent too frequent updates (minimum 10 seconds between updates)
+        const now = Date.now();
+        if (now - lastUpdateTimeRef.current < 10000 && hasLoadedCountRef.current) {
+          return;
+        }
+        
+        apiClient.setToken(token);
+        const data = await apiClient.getUnreadCount();
+        setUnreadCount(data.count);
+        lastUpdateTimeRef.current = Date.now();
+        hasLoadedCountRef.current = true;
+      } catch (error) {
+        console.error('Error loading unread count:', error);
+      }
+    };
+    
+    // Load immediately on mount
       updateCount();
-      // Update every 2 seconds
-      const interval = setInterval(updateCount, 2000);
+    
+    // Update every 30 seconds (instead of 2 seconds)
+    const interval = setInterval(updateCount, 30000);
       return () => clearInterval(interval);
-    }
-  }, [user]);
+  }, [user?.id]); // Only depend on user.id
 
   if (!user) return null;
 
@@ -175,16 +223,16 @@ export default function Header() {
               >
                 ข้อมูลสรุป
               </button>
-              <button
+                <button
                 onClick={() => router.push('/admin/users')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   pathname === '/admin/users'
                     ? 'bg-blue-100 text-blue-700'
                     : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
+                  }`}
+                >
                 จัดการผู้ใช้งาน
-              </button>
+                </button>
             </div>
           )}
         </div>

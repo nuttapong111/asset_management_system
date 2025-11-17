@@ -1,6 +1,7 @@
 import Swal from 'sweetalert2';
 import { User } from '@/types/user';
-import { mockUsers, mockContracts, mockAssets } from '@/lib/mockData';
+import { apiClient } from './api';
+import { getStoredToken } from './auth';
 
 interface TenantFormData {
   name: string;
@@ -234,14 +235,7 @@ export const showTenantForm = async (
         return false;
       }
 
-      // Check if phone number already exists (only for new tenants)
-      if (!tenant) {
-        const existingUser = mockUsers.find(u => u.phone === phone);
-        if (existingUser) {
-          Swal.showValidationMessage('เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว');
-          return false;
-        }
-      }
+      // Phone validation will be done by backend
 
       // Validate password (only for new tenants or if password is provided)
       if (!tenant) {
@@ -290,73 +284,98 @@ export const showTenantForm = async (
 
   if (!formValues) return null;
 
-  // Create or update tenant with address
-  const address = {
-    houseNumber: formValues.houseNumber,
-    villageNumber: formValues.villageNumber,
-    street: formValues.street,
-    subDistrict: formValues.subDistrict,
-    district: formValues.district,
-    province: formValues.province,
-    postalCode: formValues.postalCode,
-  };
-
-  const newTenant: User & { address?: typeof address } = tenant
-    ? {
-        ...tenant,
-        name: formValues.name,
-        email: formValues.email || undefined,
-        password: formValues.password || tenant.password,
-        address,
-        updatedAt: new Date().toISOString(),
-      }
-    : {
-        id: `tenant-${Date.now()}`,
-        phone: formValues.phone,
-        password: formValues.password!,
-        role: 'tenant',
-        name: formValues.name,
-        email: formValues.email || undefined,
-        address,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-  // In a real app, this would be an API call
-  // For now, we'll just show success message
-  if (tenant) {
+  const token = getStoredToken();
+  if (!token) {
     Swal.fire({
-      icon: 'success',
-      title: 'บันทึกสำเร็จ',
-      text: 'ข้อมูลผู้เช่าถูกอัปเดตแล้ว',
-      timer: 2000,
-      showConfirmButton: false,
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: 'กรุณาเข้าสู่ระบบใหม่',
     });
-  } else {
-    Swal.fire({
-      icon: 'success',
-      title: 'เพิ่มผู้เช่าสำเร็จ',
-      text: `ผู้เช่า "${formValues.name}" ถูกเพิ่มแล้ว`,
-      timer: 2000,
-      showConfirmButton: false,
-    });
+    return null;
   }
+  apiClient.setToken(token);
 
-  return newTenant;
+  try {
+    // Create or update tenant with address
+    const address = {
+      houseNumber: formValues.houseNumber,
+      villageNumber: formValues.villageNumber,
+      street: formValues.street,
+      subDistrict: formValues.subDistrict,
+      district: formValues.district,
+      province: formValues.province,
+      postalCode: formValues.postalCode,
+    };
+
+    const tenantData: any = {
+      name: formValues.name,
+      email: formValues.email || undefined,
+      address,
+    };
+
+    if (tenant) {
+      if (formValues.password) {
+        tenantData.password = formValues.password;
+      }
+      const updatedTenant = await apiClient.updateUser(tenant.id, tenantData);
+      await Swal.fire({
+        icon: 'success',
+        title: 'บันทึกสำเร็จ',
+        text: 'ข้อมูลผู้เช่าถูกอัปเดตแล้ว',
+        timer: 2000,
+        showConfirmButton: false,
+      });
+      return updatedTenant;
+    } else {
+      tenantData.phone = formValues.phone;
+      tenantData.password = formValues.password!;
+      tenantData.role = 'tenant';
+      const newTenant = await apiClient.createUser(tenantData);
+      await Swal.fire({
+        icon: 'success',
+        title: 'เพิ่มผู้เช่าสำเร็จ',
+        text: `ผู้เช่า "${formValues.name}" ถูกเพิ่มแล้ว`,
+        timer: 2000,
+        showConfirmButton: false,
+      });
+      return newTenant;
+    }
+  } catch (error: any) {
+    await Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: error.message || 'ไม่สามารถบันทึกข้อมูลได้',
+    });
+    return null;
+  }
 };
 
 export const showTenantDetail = async (tenant: User): Promise<void> => {
-  // Get tenant's contracts
-  const tenantContracts = mockContracts.filter(c => c.tenantId === tenant.id);
-  
-  // Get assets for each contract
-  const contractDetails = tenantContracts.map(contract => {
-    const asset = mockAssets.find(a => a.id === contract.assetId);
-    return {
-      contract,
-      asset,
-    };
-  });
+  const token = getStoredToken();
+  if (!token) {
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: 'กรุณาเข้าสู่ระบบใหม่',
+    });
+    return;
+  }
+  apiClient.setToken(token);
+
+  try {
+    // Get tenant's contracts from API
+    const allContracts = await apiClient.getContracts();
+    const tenantContracts = allContracts.filter((c: any) => c.tenantId === tenant.id);
+    
+    // Get assets for each contract
+    const allAssets = await apiClient.getAssets();
+    const contractDetails = tenantContracts.map((contract: any) => {
+      const asset = allAssets.find((a: any) => a.id === contract.assetId);
+      return {
+        contract,
+        asset,
+      };
+    });
 
   // Format contracts HTML
   const contractsHTML = contractDetails.length > 0
@@ -464,5 +483,12 @@ export const showTenantDetail = async (tenant: User): Promise<void> => {
     confirmButtonText: 'ปิด',
     confirmButtonColor: '#3b82f6',
   });
+  } catch (error: any) {
+    await Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: error.message || 'ไม่สามารถโหลดข้อมูลได้',
+    });
+  }
 };
 

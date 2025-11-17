@@ -1,6 +1,14 @@
 import Swal from 'sweetalert2';
 import { Asset } from '@/types/asset';
-import { createUnitsFromParent, CreateUnitsConfig } from '@/lib/mockData';
+import { apiClient } from './api';
+import { getStoredToken } from './auth';
+
+interface CreateUnitsConfig {
+  numberOfUnits: number;
+  unitSize: number;
+  rooms: number;
+  unitPrefix: string;
+}
 
 export const showCreateUnitsForm = async (parentAsset: Asset): Promise<boolean> => {
   if (!parentAsset.isParent) {
@@ -153,7 +161,60 @@ export const showCreateUnitsForm = async (parentAsset: Asset): Promise<boolean> 
   }
 
   try {
-    const createdUnits = createUnitsFromParent(parentAsset.id, formValues);
+    const token = getStoredToken();
+    if (!token) {
+      await Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: 'กรุณาเข้าสู่ระบบใหม่',
+      });
+      return false;
+    }
+    apiClient.setToken(token);
+
+    // Create child assets via API
+    const createdUnits: Asset[] = [];
+    const unitNumberMatch = formValues.unitPrefix.match(/^(\d+)/);
+    const baseNumber = unitNumberMatch ? parseInt(unitNumberMatch[1]) : 101;
+    
+    for (let i = 0; i < formValues.numberOfUnits; i++) {
+      const unitNumber = unitNumberMatch 
+        ? String(baseNumber + i).padStart(formValues.unitPrefix.length, '0')
+        : `${formValues.unitPrefix}${i + 1}`;
+      
+      const childAsset = await apiClient.createAsset({
+        ownerId: parentAsset.ownerId,
+        type: 'apartment',
+        name: `${parentAsset.name} - ห้อง ${unitNumber}`,
+        address: parentAsset.address,
+        district: parentAsset.district,
+        province: parentAsset.province,
+        postalCode: parentAsset.postalCode,
+        size: formValues.unitSize,
+        rooms: formValues.rooms,
+        purchasePrice: 0,
+        currentValue: 0,
+        status: 'available',
+        images: [],
+        documents: [],
+        latitude: parentAsset.latitude,
+        longitude: parentAsset.longitude,
+        description: `ห้องเช่า ${unitNumber} ใน${parentAsset.name}`,
+        parentAssetId: parentAsset.id,
+        isParent: false,
+        unitNumber: unitNumber,
+      });
+      
+      createdUnits.push(childAsset);
+    }
+    
+    // Update parent asset with new child assets
+    const currentChildAssets = parentAsset.childAssets || [];
+    const newChildAssetIds = createdUnits.map(u => u.id);
+    await apiClient.updateAsset(parentAsset.id, {
+      childAssets: [...currentChildAssets, ...newChildAssetIds],
+      totalUnits: (parentAsset.totalUnits || 0) + createdUnits.length,
+    });
     
     await Swal.fire({
       icon: 'success',

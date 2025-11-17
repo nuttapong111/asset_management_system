@@ -1,6 +1,7 @@
 import Swal from 'sweetalert2';
 import { Contract } from '@/types/contract';
-import { mockAssets, mockUsers, addContract, updateContract, getActiveContractByAsset } from '@/lib/mockData';
+import { apiClient } from './api';
+import { getStoredToken } from './auth';
 import { generateContractDocument } from './contractDocument';
 
 interface ContractFormData {
@@ -20,14 +21,28 @@ export const showContractForm = async (
   contract?: Contract | null,
   defaultAssetId?: string
 ): Promise<Contract | null> => {
-  const availableAssets = mockAssets.filter(asset => asset.status !== 'maintenance');
-  const tenants = mockUsers.filter(user => user.role === 'tenant');
+  const token = getStoredToken();
+  if (!token) {
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: 'กรุณาเข้าสู่ระบบใหม่',
+    });
+    return null;
+  }
+  apiClient.setToken(token);
+
+  // Load assets and users from API
+  const allAssets = await apiClient.getAssets();
+  const availableAssets = allAssets.filter((asset: any) => asset.status !== 'maintenance');
+  const allUsers = await apiClient.getUsers();
+  const tenants = allUsers.filter((user: any) => user.role === 'tenant');
 
   // Get selected asset if defaultAssetId is provided
   const selectedAssetForDisplay = defaultAssetId 
-    ? mockAssets.find(a => a.id === defaultAssetId)
+    ? allAssets.find((a: any) => a.id === defaultAssetId)
     : contract 
-      ? mockAssets.find(a => a.id === contract.assetId)
+      ? allAssets.find((a: any) => a.id === contract.assetId)
       : null;
 
   // Initialize form data
@@ -195,9 +210,33 @@ export const showContractForm = async (
           </div>
           <div class="swal2-form-group">
             <label class="swal2-form-label">วันที่สิ้นสุด</label>
-            <input id="swal-endDate" type="date" class="swal2-form-input" value="${initialData.endDate}">
+            <input id="swal-endDate" type="date" class="swal2-form-input" value="${initialData.endDate}" min="${initialData.startDate || ''}">
           </div>
         </div>
+        <script>
+          (function() {
+            const startDateInput = document.getElementById('swal-startDate');
+            const endDateInput = document.getElementById('swal-endDate');
+            
+            if (startDateInput && endDateInput) {
+              startDateInput.addEventListener('change', function() {
+                if (this.value) {
+                  endDateInput.min = this.value;
+                  if (endDateInput.value && endDateInput.value < this.value) {
+                    endDateInput.value = '';
+                  }
+                }
+              });
+              
+              endDateInput.addEventListener('change', function() {
+                if (startDateInput.value && this.value && this.value < startDateInput.value) {
+                  this.value = '';
+                  Swal.showValidationMessage('วันที่สิ้นสุดต้องมากกว่าหรือเท่ากับวันที่เริ่มต้น');
+                }
+              });
+            }
+          })();
+        </script>
         
         <div class="swal2-form-grid-3">
           <div class="swal2-form-group">
@@ -321,8 +360,8 @@ export const showContractForm = async (
   }
 
   try {
-    const selectedAsset = mockAssets.find((a) => a.id === formValues.assetId);
-    const selectedTenant = mockUsers.find((u) => u.id === formValues.tenantId);
+    const selectedAsset = allAssets.find((a: any) => a.id === formValues.assetId);
+    const selectedTenant = tenants.find((u: any) => u.id === formValues.tenantId);
 
     if (!selectedAsset || !selectedTenant) {
       await Swal.fire({
@@ -335,8 +374,11 @@ export const showContractForm = async (
 
     // Check if there's an active contract for this asset
     if ((!contract || formValues.status === 'active') && formValues.status === 'active') {
-      const activeContract = getActiveContractByAsset(formValues.assetId);
-      if (activeContract && activeContract.id !== contract?.id) {
+      const allContracts = await apiClient.getContracts();
+      const activeContract = allContracts.find((c: any) => 
+        c.assetId === formValues.assetId && c.status === 'active' && c.id !== contract?.id
+      );
+      if (activeContract) {
         const result = await Swal.fire({
           icon: 'warning',
           title: 'มีสัญญาใช้งานอยู่แล้ว',
@@ -351,6 +393,9 @@ export const showContractForm = async (
         if (!result.isConfirmed) {
           return null;
         }
+        
+        // Terminate existing contract
+        await apiClient.updateContract(activeContract.id, { status: 'terminated' });
       }
     }
 
@@ -364,9 +409,7 @@ export const showContractForm = async (
 
     const contractData = {
       assetId: formValues.assetId,
-      assetName: selectedAsset.name,
       tenantId: formValues.tenantId,
-      tenantName: selectedTenant.name,
       startDate: formValues.startDate,
       endDate: formValues.endDate,
       rentAmount: parseFloat(formValues.rentAmount),
@@ -380,7 +423,7 @@ export const showContractForm = async (
     let savedContract: Contract;
 
     if (contract) {
-      savedContract = updateContract(contract.id, contractData)!;
+      savedContract = await apiClient.updateContract(contract.id, contractData);
       await Swal.fire({
         icon: 'success',
         title: 'อัปเดตสัญญาเรียบร้อย',
@@ -389,7 +432,7 @@ export const showContractForm = async (
         showConfirmButton: false,
       });
     } else {
-      savedContract = addContract(contractData);
+      savedContract = await apiClient.createContract(contractData);
       
       // Generate contract document automatically for new contracts
       const result = await Swal.fire({
@@ -405,7 +448,7 @@ export const showContractForm = async (
 
       if (result.isConfirmed) {
         // Generate and open contract document
-        generateContractDocument(savedContract, selectedAsset);
+        await generateContractDocument(savedContract, selectedAsset);
       }
     }
 

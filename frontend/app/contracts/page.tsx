@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import Layout from '@/components/common/Layout';
 import { Card, CardBody, CardHeader, Button, Chip, Table, TableHeader, TableColumn, TableBody, TableRow, TableCell, Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from '@heroui/react';
 import { PlusIcon, DocumentTextIcon, PencilIcon, XMarkIcon, EllipsisVerticalIcon } from '@heroicons/react/24/outline';
-import { mockContracts, getContractsByTenant, terminateContract } from '@/lib/mockData';
-import { getStoredUser } from '@/lib/auth';
+import { apiClient } from '@/lib/api';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
 import { formatCurrency, formatDate, getStatusText, getStatusColor, calculateDaysUntil } from '@/lib/utils';
 import { Contract } from '@/types/contract';
 import Link from 'next/link';
@@ -16,13 +16,18 @@ export default function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const user = getStoredUser();
 
-  const loadContracts = () => {
+  const loadContracts = async () => {
     if (!user) return;
 
-    if (user.role === 'tenant') {
-      setContracts(getContractsByTenant(user.id));
-    } else {
-      setContracts([...mockContracts]);
+    try {
+      const token = getStoredToken();
+      if (!token) return;
+      apiClient.setToken(token);
+      
+      const contractsData = await apiClient.getContracts();
+      setContracts(contractsData);
+    } catch (error) {
+      console.error('Error loading contracts:', error);
     }
   };
 
@@ -57,8 +62,13 @@ export default function ContractsPage() {
     });
 
     if (result.isConfirmed) {
-      terminateContract(contract.id);
-      Swal.fire({
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        apiClient.setToken(token);
+        
+        await apiClient.updateContract(contract.id, { status: 'terminated' });
+        await Swal.fire({
         icon: 'success',
         title: 'ปิดการใช้งานสัญญาเรียบร้อย',
         text: 'สัญญาถูกปิดการใช้งานแล้ว',
@@ -66,6 +76,13 @@ export default function ContractsPage() {
         showConfirmButton: false,
       });
       loadContracts();
+      } catch (error: any) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: error.message || 'ไม่สามารถปิดการใช้งานสัญญาได้',
+        });
+      }
     }
   };
 

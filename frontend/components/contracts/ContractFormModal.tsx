@@ -5,7 +5,8 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, Input
 import { Contract } from '@/types/contract';
 import { Asset } from '@/types/asset';
 import { User } from '@/types/user';
-import { mockAssets, mockUsers, addContract, updateContract, getActiveContractByAsset } from '@/lib/mockData';
+import { apiClient } from '@/lib/api';
+import { getStoredToken } from '@/lib/auth';
 import Swal from 'sweetalert2';
 
 interface ContractFormModalProps {
@@ -31,12 +32,36 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [availableAssets, setAvailableAssets] = useState<Asset[]>([]);
+  const [tenants, setTenants] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Get available assets (only for owner/admin)
-  const availableAssets = mockAssets.filter(asset => asset.status !== 'maintenance');
-  
-  // Get tenants (users with role 'tenant')
-  const tenants = mockUsers.filter(user => user.role === 'tenant');
+  // Load assets and tenants from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        apiClient.setToken(token);
+        
+        const [assetsData, usersData] = await Promise.all([
+          apiClient.getAssets(),
+          apiClient.getUsers(),
+        ]);
+        
+        setAvailableAssets(assetsData.filter((asset: Asset) => asset.status !== 'maintenance'));
+        setTenants(usersData.filter((user: User) => user.role === 'tenant'));
+        setLoading(false);
+      } catch (error) {
+        console.error('Error loading data:', error);
+        setLoading(false);
+      }
+    };
+    
+    if (isOpen) {
+      loadData();
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (contract) {
@@ -110,8 +135,12 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
     if (!validate()) return;
 
     try {
-      const selectedAsset = mockAssets.find(a => a.id === formData.assetId);
-      const selectedTenant = mockUsers.find(u => u.id === formData.tenantId);
+      const token = getStoredToken();
+      if (!token) return;
+      apiClient.setToken(token);
+
+      const selectedAsset = availableAssets.find((a: Asset) => a.id === formData.assetId);
+      const selectedTenant = tenants.find((u: User) => u.id === formData.tenantId);
 
       if (!selectedAsset || !selectedTenant) {
         Swal.fire({
@@ -124,8 +153,11 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
 
       // Check if there's an active contract for this asset (only when creating new contract or activating)
       if ((!contract || formData.status === 'active') && formData.status === 'active') {
-        const activeContract = getActiveContractByAsset(formData.assetId);
-        if (activeContract && activeContract.id !== contract?.id) {
+        const allContracts = await apiClient.getContracts();
+        const activeContract = allContracts.find((c: Contract) => 
+          c.assetId === formData.assetId && c.status === 'active' && c.id !== contract?.id
+        );
+        if (activeContract) {
           const result = await Swal.fire({
             icon: 'warning',
             title: 'มีสัญญาใช้งานอยู่แล้ว',
@@ -140,14 +172,15 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
           if (!result.isConfirmed) {
             return;
           }
+          
+          // Terminate existing contract
+          await apiClient.updateContract(activeContract.id, { status: 'terminated' });
         }
       }
 
       const contractData = {
         assetId: formData.assetId,
-        assetName: selectedAsset.name,
         tenantId: formData.tenantId,
-        tenantName: selectedTenant.name,
         startDate: formData.startDate,
         endDate: formData.endDate,
         rentAmount: parseFloat(formData.rentAmount),
@@ -159,7 +192,7 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
       };
 
       if (contract) {
-        updateContract(contract.id, contractData);
+        await apiClient.updateContract(contract.id, contractData);
         Swal.fire({
           icon: 'success',
           title: 'อัปเดตสัญญาเรียบร้อย',
@@ -168,7 +201,7 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
           showConfirmButton: false,
         });
       } else {
-        addContract(contractData);
+        await apiClient.createContract(contractData);
         Swal.fire({
           icon: 'success',
           title: 'สร้างสัญญาเรียบร้อย',
@@ -180,11 +213,11 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
 
       onSuccess();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       Swal.fire({
         icon: 'error',
         title: 'เกิดข้อผิดพลาด',
-        text: 'ไม่สามารถบันทึกข้อมูลได้',
+        text: error.message || 'ไม่สามารถบันทึกข้อมูลได้',
       });
     }
   };

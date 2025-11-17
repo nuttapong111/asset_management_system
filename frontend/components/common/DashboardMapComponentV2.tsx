@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { Asset } from '@/types/asset';
 import { Maintenance } from '@/types/maintenance';
@@ -9,9 +9,9 @@ import { Payment } from '@/types/finance';
 import { formatCurrency, getStatusText } from '@/lib/utils';
 import { Card, CardBody, Button } from '@heroui/react';
 import { XMarkIcon, ChartBarIcon, PlusIcon, PencilIcon, BuildingOfficeIcon, ArrowDownTrayIcon, PhotoIcon, MagnifyingGlassIcon, FunnelIcon, DocumentTextIcon, Cog6ToothIcon } from '@heroicons/react/24/outline';
-import { mockContracts, mockPayments, terminateContract, mockAssets, getChildAssets, getTotalIncomeFromParent, getOccupancyRate, approvePayment, updatePayment, notifyOwnerPaymentProof, checkPaymentNotifications, updateMaintenance, updateAsset, mockUsers } from '@/lib/mockData';
+import { apiClient } from '@/lib/api';
+import { getStoredUser, getStoredToken } from '@/lib/auth';
 import { exportDocument } from '@/lib/documentExport';
-import { getStoredUser } from '@/lib/auth';
 import { showContractForm } from '@/lib/contractForm';
 import { showAssetForm } from '@/lib/assetForm';
 import { showCreateUnitsForm } from '@/lib/createUnitsForm';
@@ -121,10 +121,47 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     type?: Asset['type'][];
     searchText?: string;
     paymentStatus?: ('paid' | 'overdue' | 'pending' | 'no_contract')[];
-  }>({});
+  }>({
+    status: ['available', 'rented', 'maintenance'],
+    type: ['house', 'condo', 'apartment', 'land'],
+    paymentStatus: ['paid', 'overdue', 'pending', 'no_contract'],
+    searchText: '',
+  });
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0);
+  const [contractsRefreshKey, setContractsRefreshKey] = useState(0);
+  const [allAssets, setAllAssets] = useState<Asset[]>([]);
+  const [allContracts, setAllContracts] = useState<Contract[]>([]);
+  const [allPayments, setAllPayments] = useState<Payment[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
   const user = getStoredUser();
+
+  // Helper functions using API data
+  const getChildAssets = (parentAssetId: string): Asset[] => {
+    return allAssets.filter((a: Asset) => a.parentAssetId === parentAssetId);
+  };
+
+  const getOccupancyRate = (parentAssetId: string): number => {
+    const parentAsset = allAssets.find((a: Asset) => a.id === parentAssetId);
+    if (!parentAsset || !parentAsset.isParent || !parentAsset.totalUnits || parentAsset.totalUnits === 0) {
+      return 0;
+    }
+    const childAssets = getChildAssets(parentAssetId);
+    const rentedCount = childAssets.filter((a: Asset) => a.status === 'rented').length;
+    return (rentedCount / parentAsset.totalUnits) * 100;
+  };
+
+  const getTotalIncomeFromParent = (parentAssetId: string): number => {
+    const parentAsset = allAssets.find((a: Asset) => a.id === parentAssetId);
+    if (!parentAsset) return 0;
+    const childAssets = getChildAssets(parentAssetId);
+    const allAssetIds = [parentAssetId, ...childAssets.map((a: Asset) => a.id)];
+    const contracts = allContracts.filter((c: Contract) => 
+      allAssetIds.includes(c.assetId) && c.status === 'active'
+    );
+    return contracts.reduce((sum: number, contract: Contract) => sum + contract.rentAmount, 0);
+  };
 
   useEffect(() => {
     setIsClient(true);
@@ -134,19 +171,151 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     if (storedQrCode) {
       setQrCodeImage(storedQrCode);
     }
-    
-    // Check payment notifications on mount and periodically
-    checkPaymentNotifications();
-    
-    // Check every 5 minutes
-    const interval = setInterval(() => {
-      checkPaymentNotifications();
-    }, 5 * 60 * 1000);
-    
-    return () => clearInterval(interval);
   }, []);
 
-  // Initialize filters when filter modal is opened for the first time
+  // Track if initial load has completed and current user ID
+  const hasInitialLoadedRef = useRef(false);
+  const currentUserIdRef = useRef<string | null>(null);
+
+  // Load data from API - only when user changes or on mount
+  useEffect(() => {
+    // Skip if already loaded for this user
+    if (hasInitialLoadedRef.current && currentUserIdRef.current === user?.id) {
+      return;
+    }
+    
+    // Reset if user changed
+    if (currentUserIdRef.current !== user?.id) {
+      hasInitialLoadedRef.current = false;
+      currentUserIdRef.current = user?.id || null;
+    }
+    
+    if (!user) {
+      setLoadingData(false);
+      return;
+    }
+    
+    const loadData = async () => {
+      try {
+        const token = getStoredToken();
+        if (!token || !user) return;
+        
+        apiClient.setToken(token);
+        
+        // Load all data in parallel
+        const [assetsData, contractsData, paymentsData, usersData] = await Promise.all([
+          apiClient.getAssets(),
+          apiClient.getContracts(),
+          apiClient.getPayments(),
+          user.role === 'admin' ? apiClient.getUsers() : Promise.resolve([]),
+        ]);
+        
+        setAllAssets(assetsData);
+        setAllContracts(contractsData);
+        setAllPayments(paymentsData);
+        setAllUsers(usersData);
+        setLoadingData(false);
+        hasInitialLoadedRef.current = true;
+        currentUserIdRef.current = user.id;
+      } catch (error) {
+        console.error('Error loading data:', error);
+        setLoadingData(false);
+      }
+    };
+
+    loadData();
+  }, [user?.id]); // Only depend on user.id, not the whole user object
+
+  // Track previous refresh keys to avoid unnecessary API calls
+  const prevRefreshKeysRef = useRef({ assets: 0, contracts: 0, payments: 0 });
+  const isRefreshingRef = useRef(false);
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastRefreshTimeRef = useRef<number>(0);
+
+  // Refresh data when refresh keys change (but debounce to avoid too many calls)
+  useEffect(() => {
+    // Only refresh if initial load is complete
+    if (!user || !hasInitialLoadedRef.current) return;
+    
+    // Check if refresh keys actually changed
+    const keysChanged = 
+      prevRefreshKeysRef.current.assets !== assetsRefreshKey ||
+      prevRefreshKeysRef.current.contracts !== contractsRefreshKey ||
+      prevRefreshKeysRef.current.payments !== paymentsRefreshKey;
+    
+    // Skip if no keys changed or all are 0 (initial state)
+    if (!keysChanged || (assetsRefreshKey === 0 && contractsRefreshKey === 0 && paymentsRefreshKey === 0)) {
+      return;
+    }
+    
+    // Skip if already refreshing
+    if (isRefreshingRef.current) return;
+    
+    // Prevent too frequent refreshes (minimum 2 seconds between refreshes)
+    const now = Date.now();
+    if (now - lastRefreshTimeRef.current < 2000) {
+      return;
+    }
+    
+    // Clear any existing timeout
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+    
+    // Update previous keys immediately to prevent duplicate calls
+    prevRefreshKeysRef.current = {
+      assets: assetsRefreshKey,
+      contracts: contractsRefreshKey,
+      payments: paymentsRefreshKey,
+    };
+    
+    const loadData = async () => {
+      if (isRefreshingRef.current) return;
+      isRefreshingRef.current = true;
+      lastRefreshTimeRef.current = Date.now();
+      
+      try {
+        const token = getStoredToken();
+        if (!token) {
+          isRefreshingRef.current = false;
+          return;
+        }
+        
+        apiClient.setToken(token);
+        
+        // Load all data in parallel
+        const [assetsData, contractsData, paymentsData, usersData] = await Promise.all([
+          apiClient.getAssets(),
+          apiClient.getContracts(),
+          apiClient.getPayments(),
+          user.role === 'admin' ? apiClient.getUsers() : Promise.resolve([]),
+        ]);
+        
+        setAllAssets(assetsData);
+        setAllContracts(contractsData);
+        setAllPayments(paymentsData);
+        setAllUsers(usersData);
+      } catch (error) {
+        console.error('Error refreshing data:', error);
+      } finally {
+        isRefreshingRef.current = false;
+      }
+    };
+
+    // Debounce: wait 1500ms before refreshing to avoid too many calls
+    refreshTimeoutRef.current = setTimeout(() => {
+      loadData();
+    }, 1500);
+    
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+    };
+  }, [user?.id, assetsRefreshKey, contractsRefreshKey, paymentsRefreshKey]); // Remove loadingData from dependencies
+
+  // Initialize filters when filter modal is opened for the first time (if not already initialized)
   useEffect(() => {
     if (showFilterModal && !assetFilters.status && !assetFilters.type && !assetFilters.paymentStatus) {
       // Set all options as selected (like "all" is checked)
@@ -172,23 +341,23 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
       return [];
     }
     
-    // Get fresh assets from mockAssets
-    let freshAssets = mockAssets.filter(asset => {
+    // Get fresh assets from API data
+    let freshAssets = allAssets.filter((asset: Asset) => {
       if (user?.role === 'owner') {
         return asset.ownerId === user.id;
       }
       if (user?.role === 'tenant') {
         // For tenants, only show assets they are renting
-        const tenantContracts = mockContracts.filter(c => c.tenantId === user.id && c.status === 'active');
-        const tenantAssetIds = tenantContracts.map(c => c.assetId);
+        const tenantContracts = allContracts.filter((c: Contract) => c.tenantId === user.id && c.status === 'active');
+        const tenantAssetIds = tenantContracts.map((c: Contract) => c.assetId);
         // Also check child assets if this is a parent asset
         const childAssetIds = tenantContracts
-          .map(c => {
-            const contractAsset = mockAssets.find(a => a.id === c.assetId);
+          .map((c: Contract) => {
+            const contractAsset = allAssets.find((a: Asset) => a.id === c.assetId);
             return contractAsset?.parentAssetId;
           })
-          .filter(id => id !== undefined) as string[];
-        return tenantAssetIds.includes(asset.id) || childAssetIds.includes(asset.id) || (asset.isParent && asset.childAssets?.some(childId => tenantAssetIds.includes(childId)));
+          .filter((id: any) => id !== undefined) as string[];
+        return tenantAssetIds.includes(asset.id) || childAssetIds.includes(asset.id) || (asset.isParent && asset.childAssets?.some((childId: string) => tenantAssetIds.includes(childId)));
       }
       return true;
     });
@@ -231,7 +400,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
       } else {
         freshAssets = freshAssets.filter(asset => {
         // Get contracts for this asset
-        const assetContracts = mockContracts.filter(c => {
+        const assetContracts = allContracts.filter((c: Contract) => {
           if (asset.isParent && asset.childAssets) {
             return asset.childAssets.includes(c.assetId) || c.assetId === asset.id;
           }
@@ -245,7 +414,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
         
         // Get all payments for these contracts
         const contractIds = assetContracts.map(c => c.id);
-        const payments = mockPayments.filter(p => contractIds.includes(p.contractId));
+        const payments = allPayments.filter((p: Payment) => contractIds.includes(p.contractId));
         
         if (payments.length === 0) {
           return assetFilters.paymentStatus!.includes('no_contract');
@@ -316,7 +485,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
       // Show non-child assets
       return true;
     });
-  }, [assets, assetsRefreshKey, user, assetFilters]);
+  }, [allAssets, allContracts, allPayments, assetsRefreshKey, user, assetFilters]);
 
   // Get map bounds
   const mapBounds = useMemo(() => {
@@ -366,24 +535,23 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
   };
 
   // Get related data for selected asset
-  const [contractsRefreshKey, setContractsRefreshKey] = useState(0);
   const assetContracts = useMemo(() => {
     if (!selectedAsset) return [];
     
     // If parent asset, get contracts from all child assets
     if (selectedAsset.isParent && selectedAsset.childAssets) {
       const allAssetIds = [selectedAsset.id, ...selectedAsset.childAssets];
-      return mockContracts.filter(c => allAssetIds.includes(c.assetId));
+      return allContracts.filter((c: Contract) => allAssetIds.includes(c.assetId));
     }
     
     // For regular assets or child assets, get contracts for this asset only
-    return mockContracts.filter(c => c.assetId === selectedAsset.id);
+    return allContracts.filter((c: Contract) => c.assetId === selectedAsset.id);
   }, [selectedAsset, contractsRefreshKey]);
 
   const assetPayments = useMemo(() => {
     if (!selectedAsset) return [];
     const contractIds = assetContracts.map(c => c.id);
-    let payments = mockPayments.filter(p => contractIds.includes(p.contractId));
+    let payments = allPayments.filter((p: Payment) => contractIds.includes(p.contractId));
     
     // Apply filters
     if (paymentFilters.status) {
@@ -411,7 +579,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     if (!selectedAsset || !selectedAsset.isParent) {
       return [];
     }
-    const children = getChildAssets(selectedAsset.id);
+    const children = allAssets.filter((a: Asset) => a.parentAssetId === selectedAsset.id);
     // Debug logging
     console.log('Child Assets Debug:', {
       selectedAssetId: selectedAsset.id,
@@ -431,7 +599,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     if (result) {
       setAssetsRefreshKey(prev => prev + 1);
       // Refresh selected asset
-      const updatedAsset = mockAssets.find(a => a.id === selectedAsset.id);
+      const updatedAsset = allAssets.find((a: Asset) => a.id === selectedAsset.id);
       if (updatedAsset) {
         setSelectedAsset(updatedAsset);
       }
@@ -474,8 +642,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     });
 
     if (result.isConfirmed) {
-      terminateContract(contract.id);
-      Swal.fire({
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        apiClient.setToken(token);
+        
+        await apiClient.updateContract(contract.id, { status: 'terminated' });
+        await Swal.fire({
         icon: 'success',
         title: 'ปิดการใช้งานสัญญาเรียบร้อย',
         text: 'สัญญาถูกปิดการใช้งานแล้ว',
@@ -484,6 +657,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
       });
       // Force re-render contracts by updating refresh key
       setContractsRefreshKey(prev => prev + 1);
+      } catch (error: any) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: error.message || 'ไม่สามารถปิดการใช้งานสัญญาได้',
+        });
+      }
     }
   };
 
@@ -498,7 +678,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     const result = await showAssetForm(selectedAsset);
     if (result) {
       // Update selectedAsset with new data
-      const updatedAsset = mockAssets.find(a => a.id === result.id);
+      const updatedAsset = allAssets.find((a: Asset) => a.id === result.id);
       if (updatedAsset) {
         setSelectedAsset(updatedAsset);
         // Force re-render by updating refresh key
@@ -531,7 +711,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
       // Refresh assets list
       setAssetsRefreshKey(prev => prev + 1);
       // Optionally select the new asset
-      const newAsset = mockAssets.find(a => a.id === result.id);
+      const newAsset = allAssets.find((a: Asset) => a.id === result.id);
       if (newAsset) {
         setSelectedAsset(newAsset);
         setActiveTab('details');
@@ -890,13 +1070,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
           
           {/* Stats Button - Only show for owner/admin */}
           {(user?.role === 'owner' || user?.role === 'admin') && (
-            <button
-              onClick={() => setShowStatsModal(true)}
+          <button
+            onClick={() => setShowStatsModal(true)}
               className="bg-gradient-to-r from-purple-600 to-pink-600 text-white p-2 md:p-3 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-110 w-12 h-12 md:w-14 md:h-14 flex items-center justify-center"
-              title="ข้อมูลสรุปทั้งหมด"
-            >
+            title="ข้อมูลสรุปทั้งหมด"
+          >
               <ChartBarIcon className="w-5 h-5 md:w-7 md:h-7" />
-            </button>
+          </button>
           )}
         </div>
       </div>
@@ -1322,7 +1502,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                     {assetsWithLocation.length} แห่ง
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    จากทั้งหมด {mockAssets.filter(a => user?.role === 'owner' ? a.ownerId === user.id : true).length} แห่ง
+                    จากทั้งหมด {allAssets.filter((a: Asset) => user?.role === 'owner' ? a.ownerId === user.id : true).length} แห่ง
                   </p>
                 </div>
               </div>
@@ -1479,13 +1659,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                   >
                     <option value="">-- เลือกผู้เช่า --</option>
-                    {mockContracts
+                    {allContracts
                       .filter(contract => {
-                        const tenant = mockUsers.find(u => u.id === contract.tenantId);
+                        const tenant = allUsers.find((u: any) => u.id === contract.tenantId);
                         return tenant && tenant.role === 'tenant';
                       })
                       .map((contract) => {
-                        const tenant = mockUsers.find(u => u.id === contract.tenantId);
+                        const tenant = allUsers.find((u: any) => u.id === contract.tenantId);
                         if (!tenant) return null;
                         return (
                           <option key={contract.id} value={contract.tenantId}>
@@ -1540,10 +1720,10 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                           year: selectedYear,
                           month: selectedMonth,
                           tenantId: selectedTenant,
-                          payments: mockPayments,
-                          contracts: mockContracts,
-                          assets: mockAssets,
-                          tenants: mockUsers.filter(u => u.role === 'tenant'),
+                          payments: allPayments,
+                          contracts: allContracts,
+                          assets: allAssets,
+                          tenants: allUsers.filter((u: any) => u.role === 'tenant'),
                           stats: stats
                         });
                         
@@ -1658,13 +1838,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                   </div>
                   
                   <div className="space-y-2 md:space-y-3 w-full">
-                    {mockContracts
+                    {allContracts
                       .filter(contract => {
-                        const tenant = mockUsers.find(u => u.id === contract.tenantId);
+                        const tenant = allUsers.find((u: any) => u.id === contract.tenantId);
                         return tenant && tenant.role === 'tenant';
                       })
                       .map((contract) => {
-                        const tenant = mockUsers.find(u => u.id === contract.tenantId);
+                        const tenant = allUsers.find((u: any) => u.id === contract.tenantId);
                         if (!tenant) return null;
                       
                       return (
@@ -2000,16 +2180,16 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                 )}
                 {/* Documents tab - Only show for owner/admin */}
                 {(user?.role === 'owner' || user?.role === 'admin') && (
-                  <button
-                    onClick={() => setActiveTab('documents')}
-                    className={`px-4 py-2 text-sm font-medium transition-colors ${
-                      activeTab === 'documents'
-                        ? 'border-b-2 border-blue-600 text-blue-600'
-                        : 'text-gray-600 hover:text-gray-800'
-                    }`}
-                  >
-                    เอกสาร
-                  </button>
+                <button
+                  onClick={() => setActiveTab('documents')}
+                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                    activeTab === 'documents'
+                      ? 'border-b-2 border-blue-600 text-blue-600'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  เอกสาร
+                </button>
                 )}
               </div>
             </div>
@@ -2155,7 +2335,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                     // Group contracts by child asset (room)
                     <div className="space-y-4 md:space-y-6">
                       {childAssets.map((unit) => {
-                        const unitContracts = mockContracts.filter(c => c.assetId === unit.id);
+                        const unitContracts = allContracts.filter((c: Contract) => c.assetId === unit.id);
                         
                         return (
                           <div key={unit.id} className="border border-gray-200 rounded-lg p-4">
@@ -2225,9 +2405,9 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                             variant="bordered"
                                             color="success"
                                             startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
-                                            onPress={() => {
-                                              const asset = mockAssets.find(a => a.id === contract.assetId);
-                                              generateContractDocument(contract, asset);
+                                            onPress={async () => {
+                                              const asset = allAssets.find((a: Asset) => a.id === contract.assetId);
+                                              await generateContractDocument(contract, asset);
                                             }}
                                             className="w-full"
                                           >
@@ -2316,9 +2496,9 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   variant="bordered"
                                   color="success"
                                   startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
-                                  onPress={() => {
-                                    const asset = mockAssets.find(a => a.id === contract.assetId);
-                                    generateContractDocument(contract, asset);
+                                  onPress={async () => {
+                                    const asset = allAssets.find((a: Asset) => a.id === contract.assetId);
+                                    await generateContractDocument(contract, asset);
                                   }}
                                   className="w-full"
                                 >
@@ -2365,34 +2545,34 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="text-lg font-semibold text-gray-800">ประวัติการชำระเงิน</h4>
                     {(user?.role === 'owner' || user?.role === 'admin') && (
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="bordered"
-                          startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
-                          onPress={() => {
-                            const allPayments = assetContracts.flatMap(c => 
-                              mockPayments.filter(p => p.contractId === c.id)
-                            );
-                            exportPaymentsToExcel(allPayments, assetContracts, [selectedAsset!], paymentFilters);
-                          }}
-                        >
-                          Excel
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="bordered"
-                          startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
-                          onPress={() => {
-                            const allPayments = assetContracts.flatMap(c => 
-                              mockPayments.filter(p => p.contractId === c.id)
-                            );
-                            exportPaymentsToPDF(allPayments, assetContracts, [selectedAsset!], paymentFilters);
-                          }}
-                        >
-                          PDF
-                        </Button>
-                      </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="bordered"
+                        startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
+                        onPress={() => {
+                          const allPayments = assetContracts.flatMap(c => 
+                              allPayments.filter((p: Payment) => p.contractId === c.id)
+                          );
+                          exportPaymentsToExcel(allPayments, assetContracts, [selectedAsset!], paymentFilters);
+                        }}
+                      >
+                        Excel
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="bordered"
+                        startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
+                        onPress={() => {
+                          const allPayments = assetContracts.flatMap(c => 
+                              allPayments.filter((p: Payment) => p.contractId === c.id)
+                          );
+                          exportPaymentsToPDF(allPayments, assetContracts, [selectedAsset!], paymentFilters);
+                        }}
+                      >
+                        PDF
+                      </Button>
+                    </div>
                     )}
                   </div>
                   
@@ -2598,7 +2778,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                         startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
                                         className="flex-1"
                                         onPress={() => {
-                                          const asset = mockAssets.find(a => a.id === contract?.assetId);
+                                          const asset = allAssets.find((a: Asset) => a.id === contract?.assetId);
                                           if (contract && asset) {
                                             generateReceiptDocument(payment, contract, asset);
                                           }
@@ -2626,12 +2806,20 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                         });
                                         
                                         if (result.isConfirmed) {
-                                          const approvedPayment = approvePayment(payment.id);
+                                          try {
+                                            const token = getStoredToken();
+                                            if (!token) return;
+                                            apiClient.setToken(token);
+                                            
+                                            const approvedPayment = await apiClient.updatePayment(payment.id, {
+                                              status: 'paid',
+                                              paidDate: new Date().toISOString().split('T')[0],
+                                            });
                                           setPaymentsRefreshKey(prev => prev + 1);
                                           
                                           // Generate receipt automatically
                                           if (approvedPayment && contract) {
-                                            const asset = mockAssets.find(a => a.id === contract.assetId);
+                                              const asset = allAssets.find((a: Asset) => a.id === contract.assetId);
                                             if (asset) {
                                               // Show success message first
                                               await Swal.fire({
@@ -2654,6 +2842,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                               text: 'การชำระเงินได้รับการอนุมัติแล้ว',
                                               timer: 2000,
                                               showConfirmButton: false,
+                                              });
+                                            }
+                                          } catch (error: any) {
+                                            await Swal.fire({
+                                              icon: 'error',
+                                              title: 'เกิดข้อผิดพลาด',
+                                              text: error.message || 'ไม่สามารถอนุมัติการชำระเงินได้',
                                             });
                                           }
                                         }
@@ -2690,7 +2885,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                       
                       {(() => {
                         const contract = assetContracts.find(c => c.id === selectedPayment.contractId);
-                        const asset = contract ? mockAssets.find(a => a.id === contract.assetId) : null;
+                        const asset = contract ? allAssets.find((a: Asset) => a.id === contract.assetId) : null;
                         
                         return (
                           <div className="space-y-4">
@@ -2805,16 +3000,18 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
 
                                         const imageUrls = await Promise.all(imagePromises);
                                         
+                                        try {
+                                          const token = getStoredToken();
+                                          if (!token) return;
+                                          apiClient.setToken(token);
+                                        
                                         // Update payment with proof images
                                         const currentImages = selectedPayment.proofImages || [];
-                                        const updatedPayment = updatePayment(selectedPayment.id, {
+                                          const updatedPayment = await apiClient.updatePayment(selectedPayment.id, {
                                           proofImages: [...currentImages, ...imageUrls],
                                         });
 
                                         if (updatedPayment && contract && asset) {
-                                          // Notify owner
-                                          notifyOwnerPaymentProof(updatedPayment, contract, asset);
-                                          
                                           // Update selected payment state
                                           setSelectedPayment(updatedPayment);
                                           setPaymentsRefreshKey(prev => prev + 1);
@@ -2825,6 +3022,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                             text: 'หลักฐานการชำระเงินได้รับการอัปโหลดแล้ว และได้แจ้งเตือนเจ้าของทรัพย์สินแล้ว',
                                             timer: 3000,
                                             showConfirmButton: false,
+                                            });
+                                          }
+                                        } catch (error: any) {
+                                          await Swal.fire({
+                                            icon: 'error',
+                                            title: 'เกิดข้อผิดพลาด',
+                                            text: error.message || 'ไม่สามารถอัปโหลดหลักฐานได้',
                                           });
                                         }
                                       }}
@@ -2881,7 +3085,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
                                   className="w-full"
                                   onPress={() => {
-                                    const asset = mockAssets.find(a => a.id === contract.assetId);
+                                    const asset = allAssets.find((a: Asset) => a.id === contract.assetId);
                                     if (asset) {
                                       generateReceiptDocument(selectedPayment, contract, asset);
                                     }
@@ -3286,15 +3490,15 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                         });
                                         
                                         if (formData) {
-                                          const updatedMaintenance = updateMaintenance(
-                                            item.id,
-                                            {
+                                          try {
+                                            const token = getStoredToken();
+                                            if (!token) return;
+                                            apiClient.setToken(token);
+                                            
+                                            const updatedMaintenance = await apiClient.updateMaintenance(item.id, {
                                               status: 'in_progress',
                                               scheduledDate: formData.scheduledDate,
-                                            },
-                                            formData.timeRange,
-                                            formData.notes
-                                          );
+                                            });
                                           
                                           if (updatedMaintenance) {
                                             await Swal.fire({
@@ -3307,6 +3511,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                             
                                             // Refresh maintenance list
                                             setAssetsRefreshKey(prev => prev + 1);
+                                            }
+                                          } catch (error: any) {
+                                            await Swal.fire({
+                                              icon: 'error',
+                                              title: 'เกิดข้อผิดพลาด',
+                                              text: error.message || 'ไม่สามารถรับเรื่องได้',
+                                            });
                                           }
                                         }
                                       }}
@@ -3333,7 +3544,12 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                         });
                                         
                                         if (result.isConfirmed) {
-                                          const updatedMaintenance = updateMaintenance(item.id, {
+                                          try {
+                                            const token = getStoredToken();
+                                            if (!token) return;
+                                            apiClient.setToken(token);
+                                            
+                                            const updatedMaintenance = await apiClient.updateMaintenance(item.id, {
                                             status: 'completed',
                                             completedDate: new Date().toISOString().split('T')[0],
                                           });
@@ -3349,6 +3565,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                             
                                             // Refresh maintenance list
                                             setAssetsRefreshKey(prev => prev + 1);
+                                            }
+                                          } catch (error: any) {
+                                            await Swal.fire({
+                                              icon: 'error',
+                                              title: 'เกิดข้อผิดพลาด',
+                                              text: error.message || 'ไม่สามารถปิดงานได้',
+                                            });
                                           }
                                         }
                                       }}
@@ -3440,7 +3663,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                               return 0;
                             })
                             .map((unit) => {
-                            const unitContracts = mockContracts.filter(c => c.assetId === unit.id);
+                            const unitContracts = allContracts.filter((c: Contract) => c.assetId === unit.id);
                             const unitActiveContract = unitContracts.find(c => c.status === 'active');
                             
                             return (
@@ -3642,7 +3865,12 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                 return `${categoryPrefix}${fileName}|${file.data}`;
                               });
 
-                              const updatedAsset = updateAsset(selectedAsset.id, {
+                              try {
+                                const token = getStoredToken();
+                                if (!token) return;
+                                apiClient.setToken(token);
+                                
+                                const updatedAsset = await apiClient.updateAsset(selectedAsset.id, {
                                 documents: [...currentDocuments, ...newDocuments],
                               });
 
@@ -3656,6 +3884,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   text: `อัปโหลดเอกสาร ${formData.files.length} ไฟล์เรียบร้อยแล้ว`,
                                   timer: 2000,
                                   showConfirmButton: false,
+                                  });
+                                }
+                              } catch (error: any) {
+                                await Swal.fire({
+                                  icon: 'error',
+                                  title: 'เกิดข้อผิดพลาด',
+                                  text: error.message || 'ไม่สามารถอัปโหลดเอกสารได้',
                                 });
                               }
                             }
@@ -3766,7 +4001,12 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                           const currentDocuments = selectedAsset.documents || [];
                                           const updatedDocuments = currentDocuments.filter((_, i) => i !== index);
                                           
-                                          const updatedAsset = updateAsset(selectedAsset.id, {
+                                          try {
+                                            const token = getStoredToken();
+                                            if (!token) return;
+                                            apiClient.setToken(token);
+                                            
+                                            const updatedAsset = await apiClient.updateAsset(selectedAsset.id, {
                                             documents: updatedDocuments,
                                           });
 
@@ -3780,6 +4020,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                               text: 'เอกสารถูกลบเรียบร้อยแล้ว',
                                               timer: 2000,
                                               showConfirmButton: false,
+                                            });
+                                          }
+                                        } catch (error: any) {
+                                          await Swal.fire({
+                                            icon: 'error',
+                                            title: 'เกิดข้อผิดพลาด',
+                                            text: error.message || 'ไม่สามารถลบเอกสารได้',
                                             });
                                           }
                                         }
@@ -3927,7 +4174,12 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   return `${categoryPrefix}${fileName}|${file.data}`;
                                 });
 
-                                const updatedAsset = updateAsset(selectedAsset.id, {
+                                try {
+                                  const token = getStoredToken();
+                                  if (!token) return;
+                                  apiClient.setToken(token);
+                                  
+                                  const updatedAsset = await apiClient.updateAsset(selectedAsset.id, {
                                   documents: [...currentDocuments, ...newDocuments],
                                 });
 
@@ -3941,6 +4193,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                     text: `อัปโหลดเอกสาร ${formData.files.length} ไฟล์เรียบร้อยแล้ว`,
                                     timer: 2000,
                                     showConfirmButton: false,
+                                    });
+                                  }
+                                } catch (error: any) {
+                                  await Swal.fire({
+                                    icon: 'error',
+                                    title: 'เกิดข้อผิดพลาด',
+                                    text: error.message || 'ไม่สามารถอัปโหลดเอกสารได้',
                                   });
                                 }
                               }

@@ -12,6 +12,7 @@ import maintenance from './routes/maintenance';
 import dashboard from './routes/dashboard';
 import admin from './routes/admin';
 import notifications from './routes/notifications';
+import { createPaymentNotifications } from './utils/paymentNotifications';
 
 dotenv.config();
 
@@ -42,6 +43,33 @@ app.route('/api/notifications', notifications);
 const port = parseInt(process.env.PORT || '3001', 10);
 
 console.log(`🚀 Server starting on port ${port}...`);
+
+// Schedule payment notifications check
+// Check every 2 hours to catch notifications for overdue payments (every 2 days)
+let lastNotificationCheck = new Date();
+lastNotificationCheck.setHours(0, 0, 0, 0);
+
+// Check for payment notifications every 2 hours
+setInterval(async () => {
+  try {
+    const now = new Date();
+    // Run check (allow multiple checks per day for overdue notifications every 2 days)
+    const hoursSinceLastCheck = (now.getTime() - lastNotificationCheck.getTime()) / (1000 * 60 * 60);
+    if (hoursSinceLastCheck >= 2) {
+      console.log('🔔 Checking for payment notifications...');
+      await createPaymentNotifications();
+      lastNotificationCheck = new Date();
+      console.log('✅ Payment notifications check completed');
+    }
+  } catch (error) {
+    console.error('❌ Error checking payment notifications:', error);
+  }
+}, 2 * 60 * 60 * 1000); // Check every 2 hours
+
+// Run immediately on startup
+createPaymentNotifications().catch(error => {
+  console.error('❌ Error running initial payment notifications check:', error);
+});
 
 serve({
   fetch: app.fetch,

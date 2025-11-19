@@ -195,7 +195,7 @@ export const generateContractDocument = async (contract: Contract, asset?: Asset
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>สัญญาเช่าเลขที่ ${contract.id}</title>
+  <title>สัญญาเช่าเลขที่ ${contract.contractNumber || contract.id}</title>
   <style>
     @page {
       size: A4;
@@ -296,7 +296,7 @@ export const generateContractDocument = async (contract: Contract, asset?: Asset
 <body>
   <div class="header">
     <h1>สัญญาเช่าอสังหาริมทรัพย์</h1>
-    <h2>สัญญาเลขที่ ${contract.id}</h2>
+    <h2>สัญญาเลขที่ ${contract.contractNumber || contract.id}</h2>
   </div>
 
   <div class="contract-info">
@@ -351,7 +351,7 @@ export const generateContractDocument = async (contract: Contract, asset?: Asset
         <td>${contract.rentAmount.toLocaleString('th-TH')} บาท</td>
       </tr>
       <tr>
-        <td>ค่ามัดจำ</td>
+        <td>ค่าเช่าล่วงหน้า</td>
         <td>${contract.deposit.toLocaleString('th-TH')} บาท</td>
       </tr>
       <tr>
@@ -360,7 +360,7 @@ export const generateContractDocument = async (contract: Contract, asset?: Asset
       </tr>
       <tr>
         <td>รวมเงินที่ต้องชำระครั้งแรก</td>
-        <td>${(contract.rentAmount + contract.deposit + contract.insurance).toLocaleString('th-TH')} บาท</td>
+        <td>${(contract.deposit + contract.insurance).toLocaleString('th-TH')} บาท</td>
       </tr>
     </table>
   </div>

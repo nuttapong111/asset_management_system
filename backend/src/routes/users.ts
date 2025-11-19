@@ -32,6 +32,7 @@ const updateUserSchema = z.object({
   phone: z.string().min(10).optional(),
   email: z.string().email().optional(),
   password: z.string().min(6).optional(),
+  currentPassword: z.string().optional(),
   address: z.object({
     houseNumber: z.string(),
     villageNumber: z.string().optional(),
@@ -284,6 +285,29 @@ users.put('/:id', async (c) => {
       values.push(data.email || null);
     }
     if (data.password) {
+      // Admin can change password without current password verification
+      // Regular users must provide current password
+      if (currentUser?.role !== 'admin') {
+        if (data.currentPassword) {
+          const userResult = await pool.query('SELECT password FROM users WHERE id = $1', [id]);
+          if (userResult.rows.length === 0) {
+            return c.json({ error: 'User not found' }, 404);
+          }
+          
+          const isValidPassword = await bcrypt.compare(
+            data.currentPassword,
+            userResult.rows[0].password
+          );
+          
+          if (!isValidPassword) {
+            return c.json({ error: 'Current password is incorrect' }, 400);
+          }
+        } else {
+          // If password is being changed but no currentPassword provided, require it
+          return c.json({ error: 'Current password is required to change password' }, 400);
+        }
+      }
+      
       const hashedPassword = await bcrypt.hash(data.password, 10);
       updates.push(`password = $${paramIndex++}`);
       values.push(hashedPassword);

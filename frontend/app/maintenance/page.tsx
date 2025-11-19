@@ -8,29 +8,31 @@ import { apiClient } from '@/lib/api';
 import { getStoredUser, getStoredToken } from '@/lib/auth';
 import { formatCurrency, formatDate, getStatusText, getStatusColor } from '@/lib/utils';
 import { Maintenance } from '@/types/maintenance';
+import MaintenanceFormModal from '@/components/maintenance/MaintenanceFormModal';
 
 export default function MaintenancePage() {
   const [maintenance, setMaintenance] = useState<Maintenance[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const user = getStoredUser();
 
+  const loadMaintenance = async () => {
+    if (!user) return;
+
+    try {
+      const token = getStoredToken();
+      if (!token) return;
+      apiClient.setToken(token);
+      
+      const maintenanceData = await apiClient.getMaintenance();
+      setMaintenance(maintenanceData);
+    } catch (error) {
+      console.error('Error loading maintenance:', error);
+    }
+  };
+
   useEffect(() => {
-    const loadMaintenance = async () => {
-      if (!user) return;
-
-      try {
-        const token = getStoredToken();
-        if (!token) return;
-        apiClient.setToken(token);
-        
-        const maintenanceData = await apiClient.getMaintenance();
-        setMaintenance(maintenanceData);
-      } catch (error) {
-        console.error('Error loading maintenance:', error);
-      }
-    };
-
     loadMaintenance();
-  }, [user]);
+  }, [user?.id]);
 
   const getStatusChipColor = (status: string) => {
     const colors: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
@@ -63,6 +65,7 @@ export default function MaintenancePage() {
             color="primary"
             startContent={<PlusIcon className="w-5 h-5" />}
             className="font-semibold"
+            onPress={() => setIsModalOpen(true)}
           >
             {user?.role === 'tenant' ? 'แจ้งปัญหา' : 'เพิ่มรายการ'}
           </Button>
@@ -127,6 +130,7 @@ export default function MaintenancePage() {
                   color="primary"
                   className="mt-4"
                   startContent={<PlusIcon className="w-5 h-5" />}
+                  onPress={() => setIsModalOpen(true)}
                 >
                   เพิ่มรายการแรก
                 </Button>
@@ -135,6 +139,16 @@ export default function MaintenancePage() {
           </CardBody>
         </Card>
       </div>
+
+      <MaintenanceFormModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={() => {
+          loadMaintenance();
+          // Trigger dashboard refresh if on dashboard page
+          window.dispatchEvent(new CustomEvent('refreshDashboard'));
+        }}
+      />
     </Layout>
   );
 }

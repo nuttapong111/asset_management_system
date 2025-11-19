@@ -120,7 +120,16 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
     }
 
     if (!formData.deposit || parseFloat(formData.deposit) < 0) {
-      newErrors.deposit = 'กรุณาระบุค่ามัดจำที่ถูกต้อง';
+      newErrors.deposit = 'กรุณาระบุค่าเช่าล่วงหน้าที่ถูกต้อง';
+    }
+    
+    // Validate: deposit should not exceed rentAmount (max 1 month advance)
+    if (formData.deposit && formData.rentAmount) {
+      const depositAmount = parseFloat(formData.deposit);
+      const rentAmount = parseFloat(formData.rentAmount);
+      if (depositAmount > rentAmount) {
+        newErrors.deposit = 'ค่าเช่าล่วงหน้าไม่สามารถเกินค่าเช่าต่อเดือนได้ (สูงสุด 1 เดือน)';
+      }
     }
 
     if (!formData.insurance || parseFloat(formData.insurance) < 0) {
@@ -161,7 +170,7 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
           const result = await Swal.fire({
             icon: 'warning',
             title: 'มีสัญญาใช้งานอยู่แล้ว',
-            text: `ทรัพย์สินนี้มีสัญญาที่ใช้งานอยู่แล้ว (สัญญาเลขที่ ${activeContract.id}) ต้องการปิดสัญญาเดิมและสร้างสัญญาใหม่หรือไม่?`,
+            text: `ทรัพย์สินนี้มีสัญญาที่ใช้งานอยู่แล้ว (สัญญาเลขที่ ${activeContract.contractNumber || activeContract.id}) ต้องการปิดสัญญาเดิมและสร้างสัญญาใหม่หรือไม่?`,
             showCancelButton: true,
             confirmButtonText: 'ใช่, ปิดสัญญาเดิม',
             cancelButtonText: 'ยกเลิก',
@@ -329,7 +338,7 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
 
               <Input
                 type="number"
-                label="ค่ามัดจำ (บาท)"
+                label="ค่าเช่าล่วงหน้า (บาท)"
                 value={formData.deposit}
                 onChange={(e) => {
                   setFormData({ ...formData, deposit: e.target.value });

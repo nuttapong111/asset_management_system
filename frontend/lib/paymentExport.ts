@@ -48,7 +48,7 @@ export const exportPaymentsToExcel = (
     
     const typeText = 
       payment.type === 'rent' ? 'ค่าเช่า' :
-      payment.type === 'deposit' ? 'ค่ามัดจำ' :
+      payment.type === 'deposit' ? 'ค่าเช่าล่วงหน้า' :
       payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ';
     
     const statusText = 
@@ -228,7 +228,7 @@ export const exportPaymentsToPDF = (
     ${filters ? `
     <p style="font-size: 10px; color: #999;">
       ${filters.status ? `สถานะ: ${filters.status === 'paid' ? 'ชำระแล้ว' : filters.status === 'pending' ? 'รอชำระ' : 'ค้างชำระ'} | ` : ''}
-      ${filters.type ? `ประเภท: ${filters.type === 'rent' ? 'ค่าเช่า' : filters.type === 'deposit' ? 'ค่ามัดจำ' : filters.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ'} | ` : ''}
+      ${filters.type ? `ประเภท: ${filters.type === 'rent' ? 'ค่าเช่า' : filters.type === 'deposit' ? 'ค่าเช่าล่วงหน้า' : filters.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ'} | ` : ''}
       ${filters.dateFrom || filters.dateTo ? `วันที่: ${filters.dateFrom || 'ทั้งหมด'} ถึง ${filters.dateTo || 'ทั้งหมด'}` : ''}
     </p>
     ` : ''}
@@ -273,7 +273,7 @@ export const exportPaymentsToPDF = (
         
         const typeText = 
           payment.type === 'rent' ? 'ค่าเช่า' :
-          payment.type === 'deposit' ? 'ค่ามัดจำ' :
+          payment.type === 'deposit' ? 'ค่าเช่าล่วงหน้า' :
           payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ';
         
         const statusText = 

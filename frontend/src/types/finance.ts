@@ -1,7 +1,7 @@
 export type FinanceType = 'income' | 'expense';
 export type IncomeCategory = 'rent' | 'utility' | 'other';
 export type ExpenseCategory = 'repair' | 'tax' | 'service' | 'maintenance' | 'other';
-export type PaymentStatus = 'pending' | 'paid' | 'overdue';
+export type PaymentStatus = 'pending' | 'waiting_approval' | 'paid' | 'overdue';
 
 export interface FinancialRecord {
   id: string;

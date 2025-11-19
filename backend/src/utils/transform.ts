@@ -50,6 +50,7 @@ export function transformAsset(asset: AssetDB): Asset {
 export function transformContract(contract: ContractDB, assetName?: string, tenantName?: string): Contract {
   return {
     id: contract.id,
+    contractNumber: contract.contract_number,
     assetId: contract.asset_id,
     assetName,
     tenantId: contract.tenant_id,
@@ -77,6 +78,10 @@ export function transformPayment(payment: PaymentDB): Payment {
     paidDate: payment.paid_date?.toISOString().split('T')[0],
     status: payment.status,
     proofImages: payment.proof_images || [],
+    receiptNumber: payment.receipt_number || undefined,
+    receiptDate: payment.receipt_date?.toISOString().split('T')[0],
+    paymentMethod: payment.payment_method || undefined,
+    rejectionReason: payment.rejection_reason || undefined,
     createdAt: payment.created_at.toISOString(),
     updatedAt: payment.updated_at.toISOString(),
   };

@@ -222,13 +222,78 @@ maintenance.put('/:id', requireRole('owner', 'admin'), async (c) => {
     const query = `UPDATE maintenance SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
 
     const result = await pool.query(query, values);
+    const updatedMaintenance = result.rows[0];
+    const oldStatus = maintenanceResult.rows[0].status;
+    const newStatus = updatedMaintenance.status;
 
-    // Get asset name
-    const assetResult = await pool.query('SELECT name FROM assets WHERE id = $1', [result.rows[0].asset_id]);
-    const userResult = await pool.query('SELECT name FROM users WHERE id = $1', [result.rows[0].reported_by]);
+    // Get asset name and tenant info
+    const assetResult = await pool.query('SELECT name FROM assets WHERE id = $1', [updatedMaintenance.asset_id]);
+    const userResult = await pool.query('SELECT name FROM users WHERE id = $1', [updatedMaintenance.reported_by]);
+    
+    // Get tenant info if maintenance was reported by tenant
+    let tenantId = null;
+    if (updatedMaintenance.reported_by) {
+      const reportedByUser = await pool.query('SELECT id, role FROM users WHERE id = $1', [updatedMaintenance.reported_by]);
+      if (reportedByUser.rows[0]?.role === 'tenant') {
+        tenantId = reportedByUser.rows[0].id;
+      }
+    }
+
+    // Create notification for tenant when owner schedules maintenance
+    if (tenantId && (newStatus === 'in_progress' || data.scheduledDate) && oldStatus === 'pending') {
+      try {
+        const assetName = assetResult.rows[0]?.name || 'ทรัพย์สิน';
+        const scheduledDateStr = data.scheduledDate || updatedMaintenance.scheduled_date;
+        const scheduledDate = scheduledDateStr ? new Date(scheduledDateStr).toLocaleDateString('th-TH', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        }) : null;
+        
+        let message = `การแจ้งซ่อม "${updatedMaintenance.title}" สำหรับ ${assetName} ถูกรับเรื่องแล้ว`;
+        if (scheduledDate) {
+          message += ` และนัดหมายเข้าไปซ่อมในวันที่ ${scheduledDate}`;
+        }
+        
+        await pool.query(
+          `INSERT INTO notifications (user_id, type, title, message, related_id, status)
+           VALUES ($1, $2, $3, $4, $5, 'unread')`,
+          [
+            tenantId,
+            'maintenance_request',
+            'การแจ้งซ่อมถูกรับเรื่อง',
+            message,
+            id,
+          ]
+        );
+      } catch (notifError) {
+        console.error('Error creating maintenance notification:', notifError);
+        // Don't fail maintenance update if notification fails
+      }
+    }
+
+    // Create notification when maintenance is completed
+    if (newStatus === 'completed' && oldStatus !== 'completed' && tenantId) {
+      try {
+        const assetName = assetResult.rows[0]?.name || 'ทรัพย์สิน';
+        await pool.query(
+          `INSERT INTO notifications (user_id, type, title, message, related_id, status)
+           VALUES ($1, $2, $3, $4, $5, 'unread')`,
+          [
+            tenantId,
+            'maintenance_request',
+            'การซ่อมเสร็จสิ้น',
+            `การซ่อม "${updatedMaintenance.title}" สำหรับ ${assetName} เสร็จสิ้นแล้ว`,
+            id,
+          ]
+        );
+      } catch (notifError) {
+        console.error('Error creating completion notification:', notifError);
+      }
+    }
 
     const maintenance = transformMaintenance(
-      result.rows[0],
+      updatedMaintenance,
       assetResult.rows[0]?.name,
       userResult.rows[0]?.name
     );

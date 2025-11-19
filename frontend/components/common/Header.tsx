@@ -35,9 +35,10 @@ const menuItems: MenuItem[] = [
 ];
 
 // Notification List Component
-function NotificationList({ userId, onClose }: { userId: string; onClose: () => void }) {
+function NotificationList({ userId, onClose, onNotificationRemoved, isOpen }: { userId: string; onClose: () => void; onNotificationRemoved?: () => void; isOpen: boolean }) {
   const [notifications, setNotifications] = useState<any[]>([]);
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     const loadNotifications = async () => {
@@ -51,27 +52,63 @@ function NotificationList({ userId, onClose }: { userId: string; onClose: () => 
         console.error('Error loading notifications:', error);
       }
     };
-    loadNotifications();
-  }, []);
+    
+    // Only load when dropdown opens and notifications list is empty
+    if (isOpen && notifications.length === 0) {
+      loadNotifications();
+    }
+  }, [isOpen]);
 
   const handleNotificationClick = async (notification: any) => {
+    // Remove notification from list immediately (optimistic update)
+    const wasUnread = notification.status === 'unread';
+    setNotifications(prev => prev.filter(n => n.id !== notification.id));
+    
+    // Update unread count if notification was unread
+    if (wasUnread && onNotificationRemoved) {
+      onNotificationRemoved();
+    }
+    
+    // Close dropdown first
+    onClose();
+    
     try {
       const token = getStoredToken();
       if (!token) return;
       apiClient.setToken(token);
       await apiClient.markNotificationRead(notification.id);
-      // Reload notifications
-      const data = await apiClient.getNotifications();
-      setNotifications(data);
     } catch (error) {
       console.error('Error marking notification as read:', error);
+      // If error, reload notifications to restore state
+      try {
+        const token = getStoredToken();
+        if (token) {
+          apiClient.setToken(token);
+          const data = await apiClient.getNotifications();
+          setNotifications(data);
+        }
+      } catch (reloadError) {
+        console.error('Error reloading notifications:', reloadError);
+      }
     }
-    onClose();
     
     // Navigate based on notification type
     if (notification.type === 'payment_proof' && notification.relatedId) {
-      // Navigate to dashboard and could scroll to payment
-      router.push('/dashboard');
+      // Navigate to dashboard first
+      if (pathname !== '/dashboard') {
+        router.push('/dashboard');
+        // Wait a bit for navigation, then dispatch event
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('openPaymentDetail', { 
+            detail: { paymentId: notification.relatedId } 
+          }));
+        }, 500);
+      } else {
+        // Already on dashboard, dispatch event immediately
+        window.dispatchEvent(new CustomEvent('openPaymentDetail', { 
+          detail: { paymentId: notification.relatedId } 
+        }));
+      }
     }
   };
 
@@ -258,7 +295,23 @@ export default function Header() {
                 <div className="p-4 border-b border-gray-200">
                   <h3 className="text-sm font-semibold text-gray-800">การแจ้งเตือน</h3>
                 </div>
-                <NotificationList userId={user.id} onClose={() => setIsNotificationOpen(false)} />
+                <NotificationList 
+                  userId={user.id} 
+                  isOpen={isNotificationOpen}
+                  onClose={() => setIsNotificationOpen(false)}
+                  onNotificationRemoved={async () => {
+                    // Update unread count immediately
+                    try {
+                      const token = getStoredToken();
+                      if (!token) return;
+                      apiClient.setToken(token);
+                      const data = await apiClient.getUnreadCount();
+                      setUnreadCount(data.count);
+                    } catch (error) {
+                      console.error('Error updating unread count:', error);
+                    }
+                  }}
+                />
               </div>
             )}
           </div>

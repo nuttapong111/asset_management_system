@@ -143,8 +143,8 @@ dashboard.get('/', async (c) => {
       const overduePayments = paymentResult.rows.find(r => r.status === 'overdue')?.total || 0;
 
       const maintenanceResult = await pool.query(
-        'SELECT COUNT(*) as total FROM maintenance WHERE reported_by = $1 AND status IN ($2, $3)',
-        [user.id, 'pending', 'in_progress']
+        `SELECT COUNT(*) as total FROM maintenance WHERE reported_by = $1 AND status IN ('pending', 'in_progress')`,
+        [user.id]
       );
       const pendingMaintenance = parseInt(maintenanceResult.rows[0]?.total || 0);
 

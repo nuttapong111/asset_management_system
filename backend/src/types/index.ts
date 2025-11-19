@@ -107,6 +107,7 @@ export type ContractStatus = 'active' | 'expired' | 'terminated' | 'pending';
 
 export interface Contract {
   id: string;
+  contractNumber?: string;
   assetId: string;
   assetName?: string;
   tenantId: string;
@@ -125,6 +126,7 @@ export interface Contract {
 
 export interface ContractDB {
   id: string;
+  contract_number?: string;
   asset_id: string;
   tenant_id: string;
   start_date: Date;
@@ -139,7 +141,7 @@ export interface ContractDB {
   updated_at: Date;
 }
 
-export type PaymentStatus = 'pending' | 'paid' | 'overdue';
+export type PaymentStatus = 'pending' | 'waiting_approval' | 'paid' | 'overdue';
 
 export interface Payment {
   id: string;
@@ -150,6 +152,7 @@ export interface Payment {
   paidDate?: string;
   status: PaymentStatus;
   proofImages?: string[];
+  rejectionReason?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -163,6 +166,10 @@ export interface PaymentDB {
   paid_date?: Date;
   status: PaymentStatus;
   proof_images: string[];
+  receipt_number?: string;
+  receipt_date?: Date;
+  rejection_reason?: string;
+  payment_method?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -204,7 +211,7 @@ export interface MaintenanceDB {
   updated_at: Date;
 }
 
-export type NotificationType = 'payment_proof' | 'payment_due' | 'payment_due_soon' | 'contract_expiring' | 'maintenance_request' | 'payment_overdue' | 'system';
+export type NotificationType = 'payment_proof' | 'payment_due' | 'payment_due_soon' | 'contract_expiring' | 'maintenance_request' | 'payment_overdue' | 'payment_rejected' | 'system';
 export type NotificationStatus = 'unread' | 'read';
 
 export interface Notification {

@@ -128,6 +128,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     searchText: '',
   });
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [tempProofImages, setTempProofImages] = useState<string[]>([]); // Temporary proof images before confirmation
   const [paymentsRefreshKey, setPaymentsRefreshKey] = useState(0);
   const [contractsRefreshKey, setContractsRefreshKey] = useState(0);
   const [allAssets, setAllAssets] = useState<Asset[]>([]);
@@ -207,7 +208,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
           apiClient.getAssets(),
           apiClient.getContracts(),
           apiClient.getPayments(),
-          user.role === 'admin' ? apiClient.getUsers() : Promise.resolve([]),
+          (user.role === 'admin' || user.role === 'owner') ? apiClient.getUsers() : Promise.resolve([]),
         ]);
         
         setAllAssets(assetsData);
@@ -288,7 +289,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
           apiClient.getAssets(),
           apiClient.getContracts(),
           apiClient.getPayments(),
-          user.role === 'admin' ? apiClient.getUsers() : Promise.resolve([]),
+          (user.role === 'admin' || user.role === 'owner') ? apiClient.getUsers() : Promise.resolve([]),
         ]);
         
         setAllAssets(assetsData);
@@ -526,6 +527,63 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     };
   }, [selectedAsset, showStatsModal, showFilterModal, showDocumentModal, showSettingsModal, isClient]);
 
+  // Listen for notification click events to open payment detail
+  useEffect(() => {
+    const handleOpenPaymentDetail = async (event: CustomEvent) => {
+      const { paymentId } = event.detail;
+      if (!paymentId) return;
+
+      try {
+        // Find payment
+        const payment = allPayments.find((p: Payment) => p.id === paymentId);
+        if (!payment) {
+          // Reload payments if not found
+          const token = getStoredToken();
+          if (!token) return;
+          apiClient.setToken(token);
+          const paymentsData = await apiClient.getPayments();
+          setAllPayments(paymentsData);
+          
+          const foundPayment = paymentsData.find((p: Payment) => p.id === paymentId);
+          if (!foundPayment) return;
+          
+          // Find contract and asset
+          const contract = allContracts.find((c: Contract) => c.id === foundPayment.contractId);
+          if (!contract) return;
+          
+          const asset = allAssets.find((a: Asset) => a.id === contract.assetId);
+          if (!asset) return;
+          
+          // Open asset sidebar and payment detail
+          setSelectedAsset(asset);
+          setActiveTab('payment');
+          setSelectedPayment(foundPayment);
+          setTempProofImages([]);
+        } else {
+          // Find contract and asset
+          const contract = allContracts.find((c: Contract) => c.id === payment.contractId);
+          if (!contract) return;
+          
+          const asset = allAssets.find((a: Asset) => a.id === contract.assetId);
+          if (!asset) return;
+          
+          // Open asset sidebar and payment detail
+          setSelectedAsset(asset);
+          setActiveTab('payment');
+          setSelectedPayment(payment);
+          setTempProofImages([]);
+        }
+      } catch (error) {
+        console.error('Error opening payment detail:', error);
+      }
+    };
+
+    window.addEventListener('openPaymentDetail', handleOpenPaymentDetail as EventListener);
+    return () => {
+      window.removeEventListener('openPaymentDetail', handleOpenPaymentDetail as EventListener);
+    };
+  }, [allPayments, allContracts, allAssets]);
+
   // Check if asset has active maintenance requests
   const hasActiveMaintenance = (assetId: string): boolean => {
     return maintenance.some(m => 
@@ -633,7 +691,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     const result = await Swal.fire({
       icon: 'warning',
       title: 'ยืนยันการปิดการใช้งานสัญญา',
-      text: `คุณต้องการปิดการใช้งานสัญญาเลขที่ ${contract.id} หรือไม่?`,
+      text: `คุณต้องการปิดการใช้งานสัญญาเลขที่ ${contract.contractNumber || contract.id} หรือไม่?`,
       showCancelButton: true,
       confirmButtonText: 'ใช่, ปิดการใช้งาน',
       cancelButtonText: 'ยกเลิก',
@@ -667,9 +725,27 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
     }
   };
 
-  const handleContractSuccess = () => {
+  const handleContractSuccess = async () => {
     // Force re-render contracts by updating refresh key
     setContractsRefreshKey(prev => prev + 1);
+    // Refresh assets to update status
+    setAssetsRefreshKey(prev => prev + 1);
+    // Reload selected asset if exists
+    if (selectedAsset) {
+      try {
+        const token = getStoredToken();
+        if (token) {
+          apiClient.setToken(token);
+          const updatedAssets = await apiClient.getAssets();
+          const updatedAsset = updatedAssets.find((a: Asset) => a.id === selectedAsset.id);
+          if (updatedAsset) {
+            setSelectedAsset(updatedAsset);
+          }
+        }
+      } catch (error) {
+        console.error('Error refreshing asset:', error);
+      }
+    }
   };
 
   const handleEditAsset = async () => {
@@ -1826,10 +1902,19 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                       color="primary"
                       size="sm"
                       onClick={async () => {
+                        const token = getStoredToken();
+                        if (!token) return;
+                        apiClient.setToken(token);
+                        
                         const newTenant = await showTenantForm();
                         if (newTenant) {
-                          // Refresh the page or update state
-                          window.location.reload();
+                          // Reload users
+                          try {
+                            const allUsersData = await apiClient.getUsers();
+                            setAllUsers(allUsersData);
+                          } catch (error) {
+                            console.error('Error reloading users:', error);
+                          }
                         }
                       }}
                     >
@@ -1838,99 +1923,128 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                   </div>
                   
                   <div className="space-y-2 md:space-y-3 w-full">
-                    {allContracts
-                      .filter(contract => {
-                        const tenant = allUsers.find((u: any) => u.id === contract.tenantId);
-                        return tenant && tenant.role === 'tenant';
-                      })
-                      .map((contract) => {
-                        const tenant = allUsers.find((u: any) => u.id === contract.tenantId);
-                        if (!tenant) return null;
-                      
-                      return (
-                        <div 
-                          key={contract.id}
-                          className="w-full"
-                          onClick={() => {
-                            showTenantDetail(tenant);
-                          }}
-                        >
-                          <Card 
-                            className="shadow-sm cursor-pointer hover:shadow-md transition-shadow w-full"
+                    {loadingData ? (
+                      <div className="text-center py-8 text-gray-500">กำลังโหลด...</div>
+                    ) : allUsers.filter((u: any) => u.role === 'tenant').length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        ยังไม่มีผู้เช่า กดปุ่ม "+ เพิ่มผู้เช่า" เพื่อเพิ่มผู้เช่าใหม่
+                      </div>
+                    ) : (
+                      allUsers
+                        .filter((u: any) => u.role === 'tenant')
+                        .map((tenant) => {
+                          if (!tenant) return null;
+                        
+                        return (
+                          <div 
+                            key={tenant.id}
+                            className="w-full"
+                            onClick={() => {
+                              showTenantDetail(tenant);
+                            }}
                           >
-                            <CardBody className="p-4 w-full">
-                              <div className="flex items-center justify-between">
-                                <div className="flex-1">
-                                  <p className="font-semibold text-gray-800">{tenant.name}</p>
-                                  <p className="text-sm text-gray-600">เบอร์โทร: {tenant.phone}</p>
-                                  <p className="text-xs text-gray-500">Username: {tenant.phone}</p>
+                            <Card 
+                              className="shadow-sm cursor-pointer hover:shadow-md transition-shadow w-full"
+                            >
+                              <CardBody className="p-4 w-full">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex-1">
+                                    <p className="font-semibold text-gray-800">{tenant.name}</p>
+                                    <p className="text-sm text-gray-600">เบอร์โทร: {tenant.phone}</p>
+                                    <p className="text-xs text-gray-500">Username: {tenant.phone}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                    <label className="relative inline-flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                      <input
+                                        type="checkbox"
+                                        defaultChecked={true}
+                                        className="sr-only peer"
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                    </label>
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                  <label className="relative inline-flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
-                                    <input
-                                      type="checkbox"
-                                      defaultChecked={true}
-                                      className="sr-only peer"
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                  </label>
-                                </div>
-                              </div>
-                              <div className="mt-3 flex gap-2 flex-col sm:flex-row" onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                size="sm"
-                                variant="bordered"
-                                className="w-full sm:w-auto"
-                                onClick={async () => {
-                                  const updatedTenant = await showTenantForm(tenant);
-                                  if (updatedTenant) {
-                                    // Refresh the page or update state
-                                    window.location.reload();
-                                  }
-                                }}
-                              >
-                                แก้ไข
-                              </Button>
-                              <Button
-                                size="sm"
-                                color="danger"
-                                variant="solid"
-                                className="!bg-red-600 hover:!bg-red-700 !text-white w-full sm:w-auto"
-                                onClick={async () => {
-                                  const result = await Swal.fire({
-                                    title: 'ยืนยันการลบ',
-                                    text: `คุณต้องการลบผู้เช่า "${tenant.name}" หรือไม่?`,
-                                    icon: 'warning',
-                                    showCancelButton: true,
-                                    confirmButtonText: 'ลบ',
-                                    cancelButtonText: 'ยกเลิก',
-                                    confirmButtonColor: '#dc2626',
-                                    cancelButtonColor: '#6b7280',
-                                  });
+                                <div className="mt-3 flex gap-2 flex-col sm:flex-row" onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  size="sm"
+                                  variant="bordered"
+                                  className="w-full sm:w-auto"
+                                  onClick={async () => {
+                                    const token = getStoredToken();
+                                    if (!token) return;
+                                    apiClient.setToken(token);
+                                    
+                                    const updatedTenant = await showTenantForm(tenant);
+                                    if (updatedTenant) {
+                                      // Reload users
+                                      try {
+                                        const allUsersData = await apiClient.getUsers();
+                                        setAllUsers(allUsersData);
+                                      } catch (error) {
+                                        console.error('Error reloading users:', error);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  แก้ไข
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  color="danger"
+                                  variant="solid"
+                                  className="!bg-red-600 hover:!bg-red-700 !text-white w-full sm:w-auto"
+                                  onClick={async () => {
+                                    const result = await Swal.fire({
+                                      title: 'ยืนยันการลบ',
+                                      text: `คุณต้องการลบผู้เช่า "${tenant.name}" หรือไม่?`,
+                                      icon: 'warning',
+                                      showCancelButton: true,
+                                      confirmButtonText: 'ลบ',
+                                      cancelButtonText: 'ยกเลิก',
+                                      confirmButtonColor: '#dc2626',
+                                      cancelButtonColor: '#6b7280',
+                                    });
 
                                   if (result.isConfirmed) {
-                                    // In a real app, this would be an API call
-                                    Swal.fire({
-                                      icon: 'success',
-                                      title: 'ลบสำเร็จ',
-                                      text: `ผู้เช่า "${tenant.name}" ถูกลบแล้ว`,
-                                      timer: 2000,
-                                      showConfirmButton: false,
-                                    });
-                                    // Refresh the page
-                                    window.location.reload();
+                                    try {
+                                      const token = getStoredToken();
+                                      if (!token) return;
+                                      apiClient.setToken(token);
+                                      
+                                      await apiClient.deleteUser(tenant.id);
+                                      
+                                      await Swal.fire({
+                                        icon: 'success',
+                                        title: 'ลบสำเร็จ',
+                                        text: 'ผู้เช่าถูกลบแล้ว',
+                                        timer: 1500,
+                                        showConfirmButton: false,
+                                      });
+                                      
+                                      // Reload users
+                                      const allUsersData = await apiClient.getUsers();
+                                      setAllUsers(allUsersData);
+                                    } catch (error) {
+                                      console.error('Error deleting tenant:', error);
+                                      Swal.fire({
+                                        icon: 'error',
+                                        title: 'เกิดข้อผิดพลาด',
+                                        text: 'ไม่สามารถลบผู้เช่าได้',
+                                      });
+                                    }
                                   }
-                                }}
-                              >
-                                ลบ
-                              </Button>
-                            </div>
-                          </CardBody>
-                        </Card>
-                        </div>
-                      );
-                    })}
+                                  }}
+                                >
+                                  ลบ
+                                </Button>
+                              </div>
+                            </CardBody>
+                          </Card>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               ) : (
@@ -2366,7 +2480,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                       <div className="space-y-3">
                                         <div className="flex justify-between items-start">
                                           <div>
-                                            <p className="text-sm font-semibold text-gray-800">สัญญาเลขที่ {contract.id}</p>
+                                            <p className="text-sm font-semibold text-gray-800">สัญญาเลขที่ {contract.contractNumber || contract.id}</p>
                                             <p className="text-xs text-gray-500 mt-1">ผู้เช่า: {contract.tenantName}</p>
                                           </div>
                                           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -2395,7 +2509,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                             <p className="text-sm font-semibold text-blue-600">{formatCurrency(contract.rentAmount)}/เดือน</p>
                                           </div>
                                           <div className="flex justify-between items-center">
-                                            <p className="text-xs text-gray-500">ค่ามัดจำ</p>
+                                            <p className="text-xs text-gray-500">ค่าเช่าล่วงหน้า</p>
                                             <p className="text-sm font-medium text-gray-800">{formatCurrency(contract.deposit)}</p>
                                           </div>
                                         </div>
@@ -2457,7 +2571,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                             <div className="space-y-3">
                               <div className="flex justify-between items-start">
                                 <div>
-                                  <p className="text-sm font-semibold text-gray-800">สัญญาเลขที่ {contract.id}</p>
+                                  <p className="text-sm font-semibold text-gray-800">สัญญาเลขที่ {contract.contractNumber || contract.id}</p>
                                   <p className="text-xs text-gray-500 mt-1">ผู้เช่า: {contract.tenantName}</p>
                                 </div>
                                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -2486,7 +2600,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   <p className="text-sm font-semibold text-blue-600">{formatCurrency(contract.rentAmount)}/เดือน</p>
                                 </div>
                                 <div className="flex justify-between items-center">
-                                  <p className="text-xs text-gray-500">ค่ามัดจำ</p>
+                                  <p className="text-xs text-gray-500">ค่าเช่าล่วงหน้า</p>
                                   <p className="text-sm font-medium text-gray-800">{formatCurrency(contract.deposit)}</p>
                                 </div>
                               </div>
@@ -2576,59 +2690,78 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                     )}
                   </div>
                   
-                  {/* Tenant Payment Section - Show QR Code and Pay Button */}
-                  {user?.role === 'tenant' && assetContracts.length > 0 && (
-                    <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <h5 className="text-sm font-semibold text-blue-800 mb-3">ชำระเงิน</h5>
-                      {qrCodeImage ? (
-                        <div className="text-center mb-3">
-                          <p className="text-xs text-gray-600 mb-2">สแกน QR Code เพื่อชำระเงิน</p>
-                          <img 
-                            src={qrCodeImage} 
-                            alt="QR Code" 
-                            className="mx-auto w-48 h-48 border-2 border-gray-300 rounded-lg"
-                          />
-                        </div>
-                      ) : (
-                        <div className="text-center py-4 mb-3 bg-white rounded border-2 border-dashed border-gray-300">
-                          <p className="text-xs text-gray-500">ยังไม่มี QR Code</p>
-                          <p className="text-xs text-gray-400 mt-1">กรุณาติดต่อเจ้าของทรัพย์สินเพื่อเพิ่ม QR Code</p>
-                        </div>
-                      )}
-                      {assetPayments.filter(p => p.status === 'pending').length > 0 && (
-                        <div className="mt-3">
-                          <p className="text-xs text-gray-600 mb-2">รายการที่ต้องชำระ:</p>
-                          {assetPayments.filter(p => p.status === 'pending').map(payment => {
-                            const contract = assetContracts.find(c => c.id === payment.contractId);
-                            return (
-                              <div key={payment.id} className="bg-white p-2 rounded mb-2 flex justify-between items-center">
-                                <div>
-                                  <p className="text-xs font-medium text-gray-800">
-                                    {payment.type === 'rent' ? 'ค่าเช่า' : payment.type === 'deposit' ? 'ค่ามัดจำ' : payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ'}
+                  {/* Tenant Payment Section - Show payment list for due/upcoming payments */}
+                  {user?.role === 'tenant' && assetContracts.length > 0 && (() => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    
+                    // Filter payments: show only those that are due or within 10 days
+                    const dueOrUpcomingPayments = assetPayments.filter(p => {
+                      if (p.status !== 'pending') return false;
+                      
+                      const dueDate = new Date(p.dueDate);
+                      dueDate.setHours(0, 0, 0, 0);
+                      
+                      // Calculate days until due date
+                      const daysUntilDue = Math.floor((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                      
+                      // Show if due date has passed or within 10 days
+                      return daysUntilDue <= 10;
+                    });
+                    
+                    return dueOrUpcomingPayments.length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-xs font-semibold text-gray-700 mb-2">รายการที่ต้องชำระ:</p>
+                        {dueOrUpcomingPayments.map(payment => {
+                          const contract = assetContracts.find(c => c.id === payment.contractId);
+                          const dueDate = new Date(payment.dueDate);
+                          dueDate.setHours(0, 0, 0, 0);
+                          const daysUntilDue = Math.floor((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                          const isDue = daysUntilDue <= 0;
+                          
+                          return (
+                            <div key={payment.id} className="bg-white p-3 rounded-lg mb-2 border border-gray-200 shadow-sm">
+                              <div className="flex justify-between items-center">
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium text-gray-800">
+                                    {payment.type === 'rent' ? 'ค่าเช่า' : payment.type === 'deposit' ? 'ค่าเช่าล่วงหน้า' : payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ'}
                                   </p>
-                                  <p className="text-xs text-gray-500">
+                                  {contract && (
+                                    <p className="text-xs text-gray-500 mt-1">สัญญาเลขที่ {contract.contractNumber || contract.id}</p>
+                                  )}
+                                  <p className="text-xs text-gray-500 mt-1">
                                     กำหนดชำระ: {new Date(payment.dueDate).toLocaleDateString('th-TH')}
+                                    {!isDue && daysUntilDue > 0 && (
+                                      <span className="text-blue-600 ml-2">(อีก {daysUntilDue} วัน)</span>
+                                    )}
+                                    {isDue && (
+                                      <span className="text-red-600 ml-2">(ถึงกำหนดแล้ว)</span>
+                                    )}
                                   </p>
                                 </div>
-                                <div className="text-right">
-                                  <p className="text-sm font-semibold text-blue-600">{formatCurrency(payment.amount)}</p>
-                                  <Button
-                                    size="sm"
-                                    color="primary"
-                                    variant="solid"
-                                    className="mt-1"
-                                    onPress={() => setSelectedPayment(payment)}
-                                  >
-                                    จ่ายเงิน
-                                  </Button>
+                                <div className="text-right ml-4">
+                                  <p className="text-sm font-semibold text-blue-600 mb-2">{formatCurrency(payment.amount)}</p>
+                                  {isDue && (
+                                    <Button
+                                      size="sm"
+                                      color="primary"
+                                      variant="solid"
+                                      onPress={() => {
+                                        setSelectedPayment(payment);
+                                        setTempProofImages([]); // Reset temp images when selecting payment
+                                      }}
+                                    >
+                                      จ่ายเงิน
+                                    </Button>
+                                  )}
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
 
                   {/* Filters */}
                   <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
@@ -2644,6 +2777,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                           <option value="">ทั้งหมด</option>
                           <option value="paid">ชำระแล้ว</option>
                           <option value="pending">รอชำระ</option>
+                          <option value="waiting_approval">รออนุมัติ</option>
                           <option value="overdue">ค้างชำระ</option>
                         </select>
                       </div>
@@ -2656,7 +2790,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                         >
                           <option value="">ทั้งหมด</option>
                           <option value="rent">ค่าเช่า</option>
-                          <option value="deposit">ค่ามัดจำ</option>
+                          <option value="deposit">ค่าเช่าล่วงหน้า</option>
                           <option value="utility">ค่าน้ำ-ไฟ</option>
                           <option value="other">อื่นๆ</option>
                         </select>
@@ -2708,10 +2842,10 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                 <div className="flex justify-between items-start">
                                   <div className="flex-1">
                                     <p className="text-sm font-semibold text-gray-800">
-                                      {payment.type === 'rent' ? 'ค่าเช่า' : payment.type === 'deposit' ? 'ค่ามัดจำ' : payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ'}
+                                      {payment.type === 'rent' ? 'ค่าเช่า' : payment.type === 'deposit' ? 'ค่าเช่าล่วงหน้า' : payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ'}
                                     </p>
                                     {contract && (
-                                      <p className="text-xs text-gray-500 mt-1">สัญญาเลขที่ {contract.id}</p>
+                                      <p className="text-xs text-gray-500 mt-1">สัญญาเลขที่ {contract.contractNumber || contract.id}</p>
                                     )}
                                   </div>
                                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -2719,9 +2853,11 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                       ? 'bg-green-100 text-green-700'
                                       : payment.status === 'overdue'
                                       ? 'bg-red-100 text-red-700'
+                                      : payment.status === 'waiting_approval'
+                                      ? 'bg-blue-100 text-blue-700'
                                       : 'bg-yellow-100 text-yellow-700'
                                   }`}>
-                                    {payment.status === 'paid' ? 'ชำระแล้ว' : payment.status === 'overdue' ? 'ค้างชำระ' : 'รอชำระ'}
+                                    {payment.status === 'paid' ? 'ชำระแล้ว' : payment.status === 'overdue' ? 'ค้างชำระ' : payment.status === 'waiting_approval' ? 'รออนุมัติ' : 'รอชำระ'}
                                   </span>
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-100">
@@ -2766,7 +2902,10 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                       size="sm"
                                       variant="bordered"
                                       className="flex-1"
-                                      onPress={() => setSelectedPayment(payment)}
+                                      onPress={() => {
+                                        setSelectedPayment(payment);
+                                        setTempProofImages([]); // Reset temp images when selecting payment
+                                      }}
                                     >
                                       ดูรายละเอียด
                                     </Button>
@@ -2777,10 +2916,10 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                         color="success"
                                         startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
                                         className="flex-1"
-                                        onPress={() => {
+                                        onPress={async () => {
                                           const asset = allAssets.find((a: Asset) => a.id === contract?.assetId);
                                           if (contract && asset) {
-                                            generateReceiptDocument(payment, contract, asset);
+                                            await generateReceiptDocument(payment, contract, asset);
                                           }
                                         }}
                                       >
@@ -2788,37 +2927,78 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                       </Button>
                                     )}
                                   </div>
-                                  {payment.status === 'pending' && (user?.role === 'owner' || user?.role === 'admin') && (
+                                  {(payment.status === 'pending' || payment.status === 'waiting_approval') && (user?.role === 'owner' || user?.role === 'admin') && (
                                     <Button
                                       size="sm"
                                       color="success"
                                       className="w-full"
                                       onPress={async () => {
+                                        const today = new Date().toISOString().split('T')[0];
+                                        
                                         const result = await Swal.fire({
-                                          icon: 'question',
                                           title: 'อนุมัติการชำระเงิน',
-                                          text: `ต้องการอนุมัติการชำระเงินจำนวน ${formatCurrency(payment.amount)} หรือไม่?`,
+                                          html: `
+                                            <div style="text-align: left;">
+                                              <p style="margin-bottom: 15px;">จำนวนเงิน: <strong>${formatCurrency(payment.amount)}</strong></p>
+                                              <div style="margin-bottom: 15px;">
+                                                <label style="display: block; margin-bottom: 5px; font-weight: 600;">วันที่ชำระเงิน:</label>
+                                                <input type="date" id="paidDate" value="${today}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                              </div>
+                                              <div style="margin-bottom: 15px;">
+                                                <label style="display: block; margin-bottom: 5px; font-weight: 600;">วันที่ออกใบเสร็จ:</label>
+                                                <input type="date" id="receiptDate" value="${today}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                              </div>
+                                              <div style="margin-bottom: 15px;">
+                                                <label style="display: block; margin-bottom: 5px; font-weight: 600;">วิธีการชำระเงิน:</label>
+                                                <select id="paymentMethod" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                                  <option value="โอนเงิน">โอนเงิน</option>
+                                                  <option value="เงินสด">เงินสด</option>
+                                                  <option value="เช็ค">เช็ค</option>
+                                                  <option value="อื่นๆ">อื่นๆ</option>
+                                                </select>
+                                              </div>
+                                            </div>
+                                          `,
                                           showCancelButton: true,
                                           confirmButtonText: 'อนุมัติ',
                                           cancelButtonText: 'ยกเลิก',
                                           confirmButtonColor: '#10b981',
                                           cancelButtonColor: '#6b7280',
+                                          preConfirm: () => {
+                                            const paidDate = (document.getElementById('paidDate') as HTMLInputElement)?.value;
+                                            const receiptDate = (document.getElementById('receiptDate') as HTMLInputElement)?.value;
+                                            const paymentMethod = (document.getElementById('paymentMethod') as HTMLSelectElement)?.value;
+                                            
+                                            if (!paidDate || !receiptDate || !paymentMethod) {
+                                              Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วน');
+                                              return false;
+                                            }
+                                            
+                                            return { paidDate, receiptDate, paymentMethod };
+                                          },
                                         });
                                         
-                                        if (result.isConfirmed) {
+                                        if (result.isConfirmed && result.value) {
                                           try {
                                             const token = getStoredToken();
                                             if (!token) return;
                                             apiClient.setToken(token);
                                             
-                                            const approvedPayment = await apiClient.updatePayment(payment.id, {
+                                            await apiClient.updatePayment(payment.id, {
                                               status: 'paid',
-                                              paidDate: new Date().toISOString().split('T')[0],
+                                              paidDate: result.value.paidDate,
+                                              receiptDate: result.value.receiptDate,
+                                              paymentMethod: result.value.paymentMethod,
                                             });
+                                          
+                                          // Reload payment to get updated receiptNumber
+                                          // Wait a bit for backend to process
+                                          await new Promise(resolve => setTimeout(resolve, 500));
+                                          const updatedPayment = await apiClient.getPayment(payment.id);
                                           setPaymentsRefreshKey(prev => prev + 1);
                                           
                                           // Generate receipt automatically
-                                          if (approvedPayment && contract) {
+                                          if (updatedPayment && contract) {
                                               const asset = allAssets.find((a: Asset) => a.id === contract.assetId);
                                             if (asset) {
                                               // Show success message first
@@ -2830,9 +3010,9 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                                 showConfirmButton: false,
                                               });
                                               
-                                              // Generate and open receipt
-                                              setTimeout(() => {
-                                                generateReceiptDocument(approvedPayment, contract, asset);
+                                              // Generate and open receipt with updated payment data
+                                              setTimeout(async () => {
+                                                await generateReceiptDocument(updatedPayment, contract, asset);
                                               }, 300);
                                             }
                                           } else {
@@ -2876,7 +3056,10 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                       <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-semibold text-gray-800">รายละเอียดการชำระเงิน</h3>
                         <button
-                          onClick={() => setSelectedPayment(null)}
+                          onClick={() => {
+                            setSelectedPayment(null);
+                            setTempProofImages([]); // Reset temp images when closing
+                          }}
                           className="text-gray-400 hover:text-gray-600"
                         >
                           <XMarkIcon className="w-5 h-5" />
@@ -2893,7 +3076,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                               <p className="text-xs text-gray-500 mb-1">ประเภท</p>
                               <p className="text-sm font-semibold text-gray-800">
                                 {selectedPayment.type === 'rent' ? 'ค่าเช่า' : 
-                                 selectedPayment.type === 'deposit' ? 'ค่ามัดจำ' : 
+                                 selectedPayment.type === 'deposit' ? 'ค่าเช่าล่วงหน้า' : 
                                  selectedPayment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ'}
                               </p>
                             </div>
@@ -2902,7 +3085,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                               <>
                                 <div>
                                   <p className="text-xs text-gray-500 mb-1">สัญญาเลขที่</p>
-                                  <p className="text-sm font-medium text-gray-800">{contract.id}</p>
+                                  <p className="text-sm font-medium text-gray-800">{contract.contractNumber || contract.id}</p>
                                 </div>
                                 <div>
                                   <p className="text-xs text-gray-500 mb-1">ทรัพย์สิน</p>
@@ -2938,10 +3121,13 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   ? 'bg-green-100 text-green-700'
                                   : selectedPayment.status === 'overdue'
                                   ? 'bg-red-100 text-red-700'
+                                  : selectedPayment.status === 'waiting_approval'
+                                  ? 'bg-blue-100 text-blue-700'
                                   : 'bg-yellow-100 text-yellow-700'
                               }`}>
                                 {selectedPayment.status === 'paid' ? 'ชำระแล้ว' : 
-                                 selectedPayment.status === 'overdue' ? 'ค้างชำระ' : 'รอชำระ'}
+                                 selectedPayment.status === 'overdue' ? 'ค้างชำระ' : 
+                                 selectedPayment.status === 'waiting_approval' ? 'รออนุมัติ' : 'รอชำระ'}
                               </span>
                             </div>
                             
@@ -2987,7 +3173,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                         const files = e.target.files;
                                         if (!files || files.length === 0) return;
 
-                                        // Convert files to base64 (mock upload)
+                                        // Convert files to base64
                                         const imagePromises = Array.from(files).map((file) => {
                                           return new Promise<string>((resolve) => {
                                             const reader = new FileReader();
@@ -3000,37 +3186,11 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
 
                                         const imageUrls = await Promise.all(imagePromises);
                                         
-                                        try {
-                                          const token = getStoredToken();
-                                          if (!token) return;
-                                          apiClient.setToken(token);
+                                        // Add to temporary proof images (not saved yet)
+                                        setTempProofImages([...tempProofImages, ...imageUrls]);
                                         
-                                        // Update payment with proof images
-                                        const currentImages = selectedPayment.proofImages || [];
-                                          const updatedPayment = await apiClient.updatePayment(selectedPayment.id, {
-                                          proofImages: [...currentImages, ...imageUrls],
-                                        });
-
-                                        if (updatedPayment && contract && asset) {
-                                          // Update selected payment state
-                                          setSelectedPayment(updatedPayment);
-                                          setPaymentsRefreshKey(prev => prev + 1);
-                                          
-                                          await Swal.fire({
-                                            icon: 'success',
-                                            title: 'อัปโหลดหลักฐานเรียบร้อย',
-                                            text: 'หลักฐานการชำระเงินได้รับการอัปโหลดแล้ว และได้แจ้งเตือนเจ้าของทรัพย์สินแล้ว',
-                                            timer: 3000,
-                                            showConfirmButton: false,
-                                            });
-                                          }
-                                        } catch (error: any) {
-                                          await Swal.fire({
-                                            icon: 'error',
-                                            title: 'เกิดข้อผิดพลาด',
-                                            text: error.message || 'ไม่สามารถอัปโหลดหลักฐานได้',
-                                          });
-                                        }
+                                        // Reset file input
+                                        e.target.value = '';
                                       }}
                                     />
                                     <Button
@@ -3046,37 +3206,316 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                 )}
                               </div>
                               
-                              {selectedPayment.proofImages && selectedPayment.proofImages.length > 0 ? (
-                                <div className="grid grid-cols-2 gap-2">
-                                  {selectedPayment.proofImages.map((imageUrl, index) => (
-                                    <div key={index} className="relative group">
-                                      <img
-                                        src={imageUrl}
-                                        alt={`หลักฐานการชำระเงิน ${index + 1}`}
-                                        className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
-                                        onClick={() => {
-                                          // Open image in new tab
-                                          window.open(imageUrl, '_blank');
-                                        }}
-                                      />
-                                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 rounded-lg transition-all flex items-center justify-center">
-                                        <PhotoIcon className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                                      </div>
+                              {(() => {
+                                // Show existing images + temporary images
+                                const existingImages = selectedPayment.proofImages || [];
+                                const allImages = [...existingImages, ...tempProofImages];
+                                
+                                return allImages.length > 0 ? (
+                                  <div className="space-y-3">
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {allImages.map((imageUrl, index) => {
+                                        const isTemp = index >= existingImages.length;
+                                        return (
+                                          <div key={index} className="relative group">
+                                            <img
+                                              src={imageUrl}
+                                              alt={`หลักฐานการชำระเงิน ${index + 1}`}
+                                              className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
+                                              onClick={() => {
+                                                // Open image in new tab
+                                                window.open(imageUrl, '_blank');
+                                              }}
+                                            />
+                                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 rounded-lg transition-all flex items-center justify-center">
+                                              <PhotoIcon className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            </div>
+                                            {/* Delete button - show for tenant when payment is pending */}
+                                            {selectedPayment.status === 'pending' && (user?.role === 'tenant') && (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  if (isTemp) {
+                                                    // Remove from temp images
+                                                    const tempIndex = index - existingImages.length;
+                                                    setTempProofImages(tempProofImages.filter((_, i) => i !== tempIndex));
+                                                  } else {
+                                                    // For existing images, we'll need to track which ones to remove
+                                                    // For now, just remove from display by updating selectedPayment
+                                                    // This is a simplified approach - in production you might want a separate state
+                                                    const newExistingImages = existingImages.filter((_, i) => i !== index);
+                                                    setSelectedPayment({
+                                                      ...selectedPayment,
+                                                      proofImages: newExistingImages,
+                                                    });
+                                                  }
+                                                }}
+                                                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                                                title="ลบรูปภาพ"
+                                              >
+                                                <XMarkIcon className="w-4 h-4" />
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg">
-                                  <PhotoIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                                  <p className="text-xs text-gray-500">ยังไม่มีหลักฐานการชำระเงิน</p>
-                                  {selectedPayment.status === 'pending' && (user?.role === 'tenant') && (
-                                    <p className="text-xs text-gray-400 mt-1">คลิกปุ่ม "แนบหลักฐาน" เพื่ออัปโหลด</p>
-                                  )}
-                                </div>
-                              )}
+                                    
+                                    {/* Confirm button - only show if there are temporary images or changes */}
+                                    {selectedPayment.status === 'pending' && (user?.role === 'tenant') && tempProofImages.length > 0 && (
+                                      <div className="flex gap-2 justify-end pt-2 border-t border-gray-200">
+                                        <Button
+                                          size="sm"
+                                          variant="light"
+                                          color="danger"
+                                          onPress={() => {
+                                            // Cancel: reset temp images
+                                            setTempProofImages([]);
+                                          }}
+                                        >
+                                          ยกเลิก
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          color="success"
+                                          variant="solid"
+                                          onPress={async () => {
+                                            try {
+                                              const token = getStoredToken();
+                                              if (!token) return;
+                                              apiClient.setToken(token);
+                                              
+                                              // Combine existing and temp images
+                                              const currentImages = selectedPayment.proofImages || [];
+                                              const finalImages = [...currentImages, ...tempProofImages];
+                                              
+                                              // Update payment with proof images and change status to waiting_approval
+                                              const updatedPayment = await apiClient.updatePayment(selectedPayment.id, {
+                                                proofImages: finalImages,
+                                                status: 'waiting_approval',
+                                              });
+
+                                              if (updatedPayment) {
+                                                // Update selected payment state
+                                                setSelectedPayment(updatedPayment);
+                                                setTempProofImages([]);
+                                                setPaymentsRefreshKey(prev => prev + 1);
+                                                
+                                                await Swal.fire({
+                                                  icon: 'success',
+                                                  title: 'ยืนยันการชำระเงินเรียบร้อย',
+                                                  text: 'หลักฐานการชำระเงินได้รับการบันทึกแล้ว และได้แจ้งเตือนเจ้าของทรัพย์สินแล้ว',
+                                                  timer: 3000,
+                                                  showConfirmButton: false,
+                                                });
+                                              }
+                                            } catch (error: any) {
+                                              await Swal.fire({
+                                                icon: 'error',
+                                                title: 'เกิดข้อผิดพลาด',
+                                                text: error.message || 'ไม่สามารถยืนยันการชำระเงินได้',
+                                              });
+                                            }
+                                          }}
+                                        >
+                                          ยืนยันการชำระเงิน
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg">
+                                    <PhotoIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                                    <p className="text-xs text-gray-500">ยังไม่มีหลักฐานการชำระเงิน</p>
+                                    {selectedPayment.status === 'pending' && (user?.role === 'tenant') && (
+                                      <p className="text-xs text-gray-400 mt-1">คลิกปุ่ม "แนบหลักฐาน" เพื่ออัปโหลด</p>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                             
                             <div className="pt-4 border-t border-gray-200 flex flex-col gap-2">
+                              {(selectedPayment.status === 'pending' || selectedPayment.status === 'waiting_approval') && (user?.role === 'owner' || user?.role === 'admin') && (
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    color="success"
+                                    className="flex-1"
+                                    onPress={async () => {
+                                    const today = new Date().toISOString().split('T')[0];
+                                    
+                                    const result = await Swal.fire({
+                                      title: 'อนุมัติการชำระเงิน',
+                                      html: `
+                                        <div style="text-align: left;">
+                                          <p style="margin-bottom: 15px;">จำนวนเงิน: <strong>${formatCurrency(selectedPayment.amount)}</strong></p>
+                                          <div style="margin-bottom: 15px;">
+                                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">วันที่ชำระเงิน:</label>
+                                            <input type="date" id="paidDate" value="${today}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                          </div>
+                                          <div style="margin-bottom: 15px;">
+                                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">วันที่ออกใบเสร็จ:</label>
+                                            <input type="date" id="receiptDate" value="${today}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                          </div>
+                                          <div style="margin-bottom: 15px;">
+                                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">วิธีการชำระเงิน:</label>
+                                            <select id="paymentMethod" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                              <option value="โอนเงิน">โอนเงิน</option>
+                                              <option value="เงินสด">เงินสด</option>
+                                              <option value="เช็ค">เช็ค</option>
+                                              <option value="อื่นๆ">อื่นๆ</option>
+                                            </select>
+                                          </div>
+                                        </div>
+                                      `,
+                                      showCancelButton: true,
+                                      confirmButtonText: 'อนุมัติ',
+                                      cancelButtonText: 'ยกเลิก',
+                                      confirmButtonColor: '#10b981',
+                                      cancelButtonColor: '#6b7280',
+                                      preConfirm: () => {
+                                        const paidDate = (document.getElementById('paidDate') as HTMLInputElement)?.value;
+                                        const receiptDate = (document.getElementById('receiptDate') as HTMLInputElement)?.value;
+                                        const paymentMethod = (document.getElementById('paymentMethod') as HTMLSelectElement)?.value;
+                                        
+                                        if (!paidDate || !receiptDate || !paymentMethod) {
+                                          Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วน');
+                                          return false;
+                                        }
+                                        
+                                        return { paidDate, receiptDate, paymentMethod };
+                                      },
+                                    });
+                                    
+                                    if (result.isConfirmed && result.value) {
+                                      try {
+                                        const token = getStoredToken();
+                                        if (!token) return;
+                                        apiClient.setToken(token);
+                                        
+                                        const approvedPayment = await apiClient.updatePayment(selectedPayment.id, {
+                                          status: 'paid',
+                                          paidDate: result.value.paidDate,
+                                          receiptDate: result.value.receiptDate,
+                                          paymentMethod: result.value.paymentMethod,
+                                        });
+                                        
+                                        // Reload payment to get updated receiptNumber
+                                        // Wait a bit for backend to process
+                                        await new Promise(resolve => setTimeout(resolve, 500));
+                                        const updatedPayment = await apiClient.getPayment(selectedPayment.id);
+                                        setPaymentsRefreshKey(prev => prev + 1);
+                                        
+                                        // Generate receipt automatically
+                                        if (updatedPayment && contract) {
+                                          const asset = allAssets.find((a: Asset) => a.id === contract.assetId);
+                                          if (asset) {
+                                            // Update selected payment with fresh data
+                                            setSelectedPayment(updatedPayment);
+                                            
+                                            // Show success message first
+                                            await Swal.fire({
+                                              icon: 'success',
+                                              title: 'อนุมัติเรียบร้อย',
+                                              text: 'การชำระเงินได้รับการอนุมัติแล้ว กำลังเปิดใบเสร็จรับเงิน...',
+                                              timer: 1500,
+                                              showConfirmButton: false,
+                                            });
+                                            
+                                            // Generate and open receipt with updated payment data
+                                            setTimeout(() => {
+                                              generateReceiptDocument(updatedPayment, contract, asset);
+                                            }, 300);
+                                          }
+                                        } else {
+                                          await Swal.fire({
+                                            icon: 'success',
+                                            title: 'อนุมัติเรียบร้อย',
+                                            text: 'การชำระเงินได้รับการอนุมัติแล้ว',
+                                            timer: 2000,
+                                            showConfirmButton: false,
+                                          });
+                                        }
+                                      } catch (error: any) {
+                                        await Swal.fire({
+                                          icon: 'error',
+                                          title: 'เกิดข้อผิดพลาด',
+                                          text: error.message || 'ไม่สามารถอนุมัติการชำระเงินได้',
+                                        });
+                                      }
+                                    }
+                                  }}
+                                  >
+                                    อนุมัติ
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    color="danger"
+                                    variant="bordered"
+                                    className="flex-1"
+                                    onPress={async () => {
+                                      const result = await Swal.fire({
+                                        title: 'ปฏิเสธการชำระเงิน',
+                                        html: `
+                                          <div style="text-align: left;">
+                                            <p style="margin-bottom: 15px;">จำนวนเงิน: <strong>${formatCurrency(selectedPayment.amount)}</strong></p>
+                                            <div style="margin-bottom: 15px;">
+                                              <label style="display: block; margin-bottom: 5px; font-weight: 600;">เหตุผลในการปฏิเสธ (ไม่บังคับ):</label>
+                                              <textarea id="rejectionReason" rows="3" placeholder="ระบุเหตุผลในการปฏิเสธ (ถ้ามี)" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit;"></textarea>
+                                            </div>
+                                          </div>
+                                        `,
+                                        showCancelButton: true,
+                                        confirmButtonText: 'ปฏิเสธ',
+                                        cancelButtonText: 'ยกเลิก',
+                                        confirmButtonColor: '#ef4444',
+                                        cancelButtonColor: '#6b7280',
+                                        icon: 'warning',
+                                        preConfirm: () => {
+                                          const rejectionReason = (document.getElementById('rejectionReason') as HTMLTextAreaElement)?.value || '';
+                                          return { rejectionReason };
+                                        },
+                                      });
+                                      
+                                      if (result.isConfirmed && result.value) {
+                                        try {
+                                          const token = getStoredToken();
+                                          if (!token) return;
+                                          apiClient.setToken(token);
+                                          
+                                          await apiClient.updatePayment(selectedPayment.id, {
+                                            status: 'pending',
+                                            rejectionReason: result.value.rejectionReason,
+                                          });
+                                          
+                                          setPaymentsRefreshKey(prev => prev + 1);
+                                          
+                                          // Reload payment to get updated status
+                                          const updatedPayment = await apiClient.getPayment(selectedPayment.id);
+                                          setSelectedPayment(updatedPayment);
+                                          
+                                          await Swal.fire({
+                                            icon: 'success',
+                                            title: 'ปฏิเสธเรียบร้อย',
+                                            text: 'การชำระเงินถูกปฏิเสธแล้ว และได้แจ้งเตือนผู้เช่าแล้ว',
+                                            timer: 2000,
+                                            showConfirmButton: false,
+                                          });
+                                        } catch (error: any) {
+                                          await Swal.fire({
+                                            icon: 'error',
+                                            title: 'เกิดข้อผิดพลาด',
+                                            text: error.message || 'ไม่สามารถปฏิเสธการชำระเงินได้',
+                                          });
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    ปฏิเสธ
+                                  </Button>
+                                </div>
+                              )}
                               {selectedPayment.status === 'paid' && contract && (
                                 <Button
                                   size="sm"
@@ -3084,10 +3523,10 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   variant="bordered"
                                   startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
                                   className="w-full"
-                                  onPress={() => {
+                                  onPress={async () => {
                                     const asset = allAssets.find((a: Asset) => a.id === contract.assetId);
                                     if (asset) {
-                                      generateReceiptDocument(selectedPayment, contract, asset);
+                                      await generateReceiptDocument(selectedPayment, contract, asset);
                                     }
                                   }}
                                 >
@@ -3098,7 +3537,10 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                 size="sm"
                                 variant="bordered"
                                 className="w-full"
-                                onPress={() => setSelectedPayment(null)}
+                                onPress={() => {
+                                  setSelectedPayment(null);
+                                  setTempProofImages([]); // Reset temp images when closing
+                                }}
                               >
                                 ปิด
                               </Button>
@@ -3194,28 +3636,44 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                           });
                           
                           if (formData) {
-                            const { addMaintenance } = await import('@/lib/mockData');
-                            const newMaintenance = addMaintenance({
-                              assetId: selectedAsset!.id,
-                              assetName: selectedAsset!.name,
-                              type: formData.type as 'repair' | 'routine' | 'emergency',
-                              title: formData.title,
-                              description: formData.description,
-                              cost: 0,
-                              status: 'pending',
-                              reportedBy: user.id,
-                              reportedByName: user.name,
-                            });
-                            
-                            await Swal.fire({
-                              icon: 'success',
-                              title: 'แจ้งซ่อมเรียบร้อย',
-                              text: 'ได้แจ้งซ่อมเรียบร้อยแล้ว และได้แจ้งเตือนเจ้าของทรัพย์สินแล้ว',
-                              timer: 2000,
-                              showConfirmButton: false,
-                            });
-                            
-                            setAssetsRefreshKey(prev => prev + 1);
+                            try {
+                              const token = getStoredToken();
+                              if (!token) {
+                                await Swal.fire({
+                                  icon: 'error',
+                                  title: 'เกิดข้อผิดพลาด',
+                                  text: 'กรุณาเข้าสู่ระบบใหม่',
+                                });
+                                return;
+                              }
+                              apiClient.setToken(token);
+                              
+                              await apiClient.createMaintenance({
+                                assetId: selectedAsset!.id,
+                                type: formData.type as 'repair' | 'routine' | 'emergency',
+                                title: formData.title,
+                                description: formData.description,
+                                cost: 0,
+                              });
+                              
+                              await Swal.fire({
+                                icon: 'success',
+                                title: 'แจ้งซ่อมเรียบร้อย',
+                                text: 'ได้แจ้งซ่อมเรียบร้อยแล้ว และได้แจ้งเตือนเจ้าของทรัพย์สินแล้ว',
+                                timer: 2000,
+                                showConfirmButton: false,
+                              });
+                              
+                              setAssetsRefreshKey(prev => prev + 1);
+                              window.dispatchEvent(new CustomEvent('refreshDashboard'));
+                            } catch (error: any) {
+                              console.error('Error creating maintenance:', error);
+                              await Swal.fire({
+                                icon: 'error',
+                                title: 'เกิดข้อผิดพลาด',
+                                text: error.message || 'ไม่สามารถแจ้งซ่อมได้',
+                              });
+                            }
                           }
                         }}
                       >
@@ -3305,28 +3763,44 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                             });
                             
                             if (formData) {
-                              const { addMaintenance } = await import('@/lib/mockData');
-                              const newMaintenance = addMaintenance({
-                                assetId: selectedAsset!.id,
-                                assetName: selectedAsset!.name,
-                                type: formData.type as 'repair' | 'routine' | 'emergency',
-                                title: formData.title,
-                                description: formData.description,
-                                cost: 0,
-                                status: 'pending',
-                                reportedBy: user.id,
-                                reportedByName: user.name,
-                              });
-                              
-                              await Swal.fire({
-                                icon: 'success',
-                                title: 'แจ้งซ่อมเรียบร้อย',
-                                text: 'ได้แจ้งซ่อมเรียบร้อยแล้ว และได้แจ้งเตือนเจ้าของทรัพย์สินแล้ว',
-                                timer: 2000,
-                                showConfirmButton: false,
-                              });
-                              
-                              setAssetsRefreshKey(prev => prev + 1);
+                              try {
+                                const token = getStoredToken();
+                                if (!token) {
+                                  await Swal.fire({
+                                    icon: 'error',
+                                    title: 'เกิดข้อผิดพลาด',
+                                    text: 'กรุณาเข้าสู่ระบบใหม่',
+                                  });
+                                  return;
+                                }
+                                apiClient.setToken(token);
+                                
+                                await apiClient.createMaintenance({
+                                  assetId: selectedAsset!.id,
+                                  type: formData.type as 'repair' | 'routine' | 'emergency',
+                                  title: formData.title,
+                                  description: formData.description,
+                                  cost: 0,
+                                });
+                                
+                                await Swal.fire({
+                                  icon: 'success',
+                                  title: 'แจ้งซ่อมเรียบร้อย',
+                                  text: 'ได้แจ้งซ่อมเรียบร้อยแล้ว และได้แจ้งเตือนเจ้าของทรัพย์สินแล้ว',
+                                  timer: 2000,
+                                  showConfirmButton: false,
+                                });
+                                
+                                setAssetsRefreshKey(prev => prev + 1);
+                                window.dispatchEvent(new CustomEvent('refreshDashboard'));
+                              } catch (error: any) {
+                                console.error('Error creating maintenance:', error);
+                                await Swal.fire({
+                                  icon: 'error',
+                                  title: 'เกิดข้อผิดพลาด',
+                                  text: error.message || 'ไม่สามารถแจ้งซ่อมได้',
+                                });
+                              }
                             }
                           }}
                         >
@@ -3511,6 +3985,8 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                             
                                             // Refresh maintenance list
                                             setAssetsRefreshKey(prev => prev + 1);
+                                            // Trigger dashboard refresh
+                                            window.dispatchEvent(new CustomEvent('refreshDashboard'));
                                             }
                                           } catch (error: any) {
                                             await Swal.fire({
@@ -3565,6 +4041,8 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                             
                                             // Refresh maintenance list
                                             setAssetsRefreshKey(prev => prev + 1);
+                                            // Trigger dashboard refresh
+                                            window.dispatchEvent(new CustomEvent('refreshDashboard'));
                                             }
                                           } catch (error: any) {
                                             await Swal.fire({
@@ -3701,7 +4179,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                         </div>
                                         <div className="flex justify-between items-center text-xs">
                                           <p className="text-gray-500">สัญญาเลขที่</p>
-                                          <p className="text-gray-700 font-mono">{unitActiveContract.id}</p>
+                                          <p className="text-gray-700 font-mono">{unitActiveContract.contractNumber || unitActiveContract.id}</p>
                                         </div>
                                       </div>
                                     ) : (

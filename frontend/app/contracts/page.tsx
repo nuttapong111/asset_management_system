@@ -53,7 +53,7 @@ export default function ContractsPage() {
     const result = await Swal.fire({
       icon: 'warning',
       title: 'ยืนยันการปิดการใช้งานสัญญา',
-      text: `คุณต้องการปิดการใช้งานสัญญาเลขที่ ${contract.id} หรือไม่?`,
+      text: `คุณต้องการปิดการใช้งานสัญญาเลขที่ ${contract.contractNumber || contract.id} หรือไม่?`,
       showCancelButton: true,
       confirmButtonText: 'ใช่, ปิดการใช้งาน',
       cancelButtonText: 'ยกเลิก',

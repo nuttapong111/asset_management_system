@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS assets (
 -- Contracts table
 CREATE TABLE IF NOT EXISTS contracts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  contract_number VARCHAR(20),
   asset_id UUID NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
   tenant_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   start_date DATE NOT NULL,
@@ -64,6 +65,9 @@ CREATE TABLE IF NOT EXISTS contracts (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Create index for contract_number
+CREATE INDEX IF NOT EXISTS idx_contracts_contract_number ON contracts(contract_number);
+
 -- Payments table
 CREATE TABLE IF NOT EXISTS payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -72,11 +76,17 @@ CREATE TABLE IF NOT EXISTS payments (
   type VARCHAR(20) NOT NULL CHECK (type IN ('rent', 'deposit', 'utility', 'other')),
   due_date DATE NOT NULL,
   paid_date DATE,
-  status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'paid', 'overdue')),
+  status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'waiting_approval', 'paid', 'overdue')),
   proof_images TEXT[] DEFAULT '{}',
+  receipt_number VARCHAR(20),
+  receipt_date DATE,
+  payment_method VARCHAR(50),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create index for receipt_number
+CREATE INDEX IF NOT EXISTS idx_payments_receipt_number ON payments(receipt_number);
 
 -- Financial Records table
 CREATE TABLE IF NOT EXISTS financial_records (

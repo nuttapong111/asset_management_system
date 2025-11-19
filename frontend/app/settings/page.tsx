@@ -5,10 +5,8 @@ import { Card, CardBody, CardHeader, Input, Button } from '@heroui/react';
 import { getStoredUser, getStoredToken } from '@/lib/auth';
 import { useState, useEffect } from 'react';
 import Swal from 'sweetalert2';
-import { PencilIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { PencilIcon } from '@heroicons/react/24/outline';
 import { apiClient } from '@/lib/api';
-import { showTenantForm } from '@/lib/tenantForm';
-import { User } from '@/types/user';
 
 export default function SettingsPage() {
   const user = getStoredUser();
@@ -39,28 +37,63 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   
   const [loading, setLoading] = useState(false);
-  
-  // Tenant management (for owners only)
-  const [tenants, setTenants] = useState<User[]>([]);
-  const [loadingTenants, setLoadingTenants] = useState(false);
+
 
   const handleSavePersonal = async () => {
+    if (!user) return;
+    
     setLoading(true);
     
-    // Mock save
-    setTimeout(() => {
-      setOriginalName(name);
-      setOriginalEmail(email);
-      setIsEditingPersonal(false);
+    try {
+      const token = getStoredToken();
+      if (!token) {
       Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: 'ไม่พบ token กรุณาเข้าสู่ระบบใหม่',
+        });
+        setLoading(false);
+        return;
+      }
+      
+      apiClient.setToken(token);
+      
+      const updateData: any = {};
+      if (name) updateData.name = name;
+      if (email !== undefined) updateData.email = email || null;
+      
+      await apiClient.updateUser(user.id, updateData);
+      
+      // Reload user data
+      const updatedUser = await apiClient.getUser(user.id);
+      if (updatedUser) {
+        // Update localStorage
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        setOriginalName(updatedUser.name || '');
+        setOriginalEmail(updatedUser.email || '');
+      }
+      
+      setIsEditingPersonal(false);
+      await Swal.fire({
         icon: 'success',
         title: 'บันทึกสำเร็จ',
         text: 'ข้อมูลของคุณได้รับการอัพเดทแล้ว',
         timer: 1500,
         showConfirmButton: false,
       });
+      
+      // Reload page to show updated data
+      window.location.reload();
+    } catch (error: any) {
+      console.error('Error saving personal info:', error);
+      await Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error.message || 'ไม่สามารถบันทึกข้อมูลได้',
+      });
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const handleCancelPersonal = () => {
@@ -70,27 +103,101 @@ export default function SettingsPage() {
   };
 
   const handleSaveAddress = async () => {
+    if (!user) return;
+    
     setLoading(true);
     
-    // Mock save
-    setTimeout(() => {
+    try {
+      const token = getStoredToken();
+      if (!token) {
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: 'ไม่พบ token กรุณาเข้าสู่ระบบใหม่',
+        });
+        setLoading(false);
+        return;
+      }
+      
+      apiClient.setToken(token);
+      
+      const addressData = {
+        houseNumber: houseNumber || '',
+        villageNumber: villageNumber || '',
+        street: street || '',
+        subDistrict: subDistrict || '',
+        district: district || '',
+        province: province || '',
+        postalCode: postalCode || '',
+      };
+      
+      await apiClient.updateUser(user.id, { address: addressData });
+      
+      // Reload user data
+      const updatedUser = await apiClient.getUser(user.id);
+      if (updatedUser) {
+        // Update localStorage
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+      }
+      
       setIsEditingAddress(false);
-      Swal.fire({
+      await Swal.fire({
         icon: 'success',
         title: 'บันทึกสำเร็จ',
         text: 'ข้อมูลที่อยู่ได้รับการอัพเดทแล้ว',
         timer: 1500,
         showConfirmButton: false,
       });
+      
+      // Reload page to show updated data
+      window.location.reload();
+    } catch (error: any) {
+      console.error('Error saving address:', error);
+      await Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error.message || 'ไม่สามารถบันทึกข้อมูลที่อยู่ได้',
+      });
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const handleCancelAddress = () => {
+    // Reset address fields to original values
+    if (user?.address) {
+      const addr = typeof user.address === 'string' ? JSON.parse(user.address) : user.address;
+      setHouseNumber(addr.houseNumber || '');
+      setVillageNumber(addr.villageNumber || '');
+      setStreet(addr.street || '');
+      setSubDistrict(addr.subDistrict || '');
+      setDistrict(addr.district || '');
+      setProvince(addr.province || '');
+      setPostalCode(addr.postalCode || '');
+    } else {
+      setHouseNumber('');
+      setVillageNumber('');
+      setStreet('');
+      setSubDistrict('');
+      setDistrict('');
+      setProvince('');
+      setPostalCode('');
+    }
     setIsEditingAddress(false);
   };
 
   const handleSavePassword = async () => {
+    if (!user) return;
+    
+    if (!currentPassword) {
+      Swal.fire({
+        icon: 'error',
+        title: 'กรุณากรอกรหัสผ่านปัจจุบัน',
+        text: 'กรุณากรอกรหัสผ่านปัจจุบันก่อนเปลี่ยนรหัสผ่าน',
+      });
+      return;
+    }
+    
     if (newPassword !== confirmPassword) {
       Swal.fire({
         icon: 'error',
@@ -100,23 +207,64 @@ export default function SettingsPage() {
       return;
     }
     
+    if (newPassword.length < 6) {
+      Swal.fire({
+        icon: 'error',
+        title: 'รหัสผ่านสั้นเกินไป',
+        text: 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร',
+      });
+      return;
+    }
+    
     setLoading(true);
     
-    // Mock save
-    setTimeout(() => {
+    try {
+      const token = getStoredToken();
+      if (!token) {
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: 'ไม่พบ token กรุณาเข้าสู่ระบบใหม่',
+        });
+        setLoading(false);
+        return;
+      }
+      
+      apiClient.setToken(token);
+      
+      // Update password
+      await apiClient.updateUser(user.id, { 
+        password: newPassword,
+        currentPassword: currentPassword 
+      });
+      
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       setIsEditingPassword(false);
-      Swal.fire({
+      
+      await Swal.fire({
         icon: 'success',
         title: 'บันทึกสำเร็จ',
-        text: 'รหัสผ่านได้รับการอัพเดทแล้ว',
-        timer: 1500,
+        text: 'รหัสผ่านได้รับการอัพเดทแล้ว กรุณาเข้าสู่ระบบใหม่',
+        timer: 2000,
         showConfirmButton: false,
       });
+      
+      // Logout and redirect to login
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    } catch (error: any) {
+      console.error('Error saving password:', error);
+      await Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error.message || 'ไม่สามารถเปลี่ยนรหัสผ่านได้ กรุณาตรวจสอบรหัสผ่านปัจจุบัน',
+      });
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const handleCancelPassword = () => {
@@ -126,99 +274,19 @@ export default function SettingsPage() {
     setIsEditingPassword(false);
   };
 
-  // Load tenants (for owners only)
+  // Load address from user when component mounts
   useEffect(() => {
-    const loadTenants = async () => {
-      if (user?.role !== 'owner') return;
-      
-      try {
-        setLoadingTenants(true);
-        const token = getStoredToken();
-        if (!token) return;
-        
-        apiClient.setToken(token);
-        const allUsers = await apiClient.getUsers();
-        const tenantUsers = allUsers.filter((u: User) => u.role === 'tenant');
-        setTenants(tenantUsers);
-      } catch (error) {
-        console.error('Error loading tenants:', error);
-      } finally {
-        setLoadingTenants(false);
-      }
-    };
-
-    loadTenants();
+    if (user?.address) {
+      const addr = typeof user.address === 'string' ? JSON.parse(user.address) : user.address;
+      setHouseNumber(addr.houseNumber || '');
+      setVillageNumber(addr.villageNumber || '');
+      setStreet(addr.street || '');
+      setSubDistrict(addr.subDistrict || '');
+      setDistrict(addr.district || '');
+      setProvince(addr.province || '');
+      setPostalCode(addr.postalCode || '');
+    }
   }, [user]);
-
-  const handleAddTenant = async () => {
-    const token = getStoredToken();
-    if (!token) return;
-    apiClient.setToken(token);
-    
-    const newTenant = await showTenantForm();
-    if (newTenant) {
-      // Reload tenants
-      const allUsers = await apiClient.getUsers();
-      const tenantUsers = allUsers.filter((u: User) => u.role === 'tenant');
-      setTenants(tenantUsers);
-    }
-  };
-
-  const handleEditTenant = async (tenant: User) => {
-    const token = getStoredToken();
-    if (!token) return;
-    apiClient.setToken(token);
-    
-    const updatedTenant = await showTenantForm(tenant);
-    if (updatedTenant) {
-      // Reload tenants
-      const allUsers = await apiClient.getUsers();
-      const tenantUsers = allUsers.filter((u: User) => u.role === 'tenant');
-      setTenants(tenantUsers);
-    }
-  };
-
-  const handleDeleteTenant = async (tenant: User) => {
-    const result = await Swal.fire({
-      icon: 'warning',
-      title: 'ยืนยันการลบ',
-      text: `คุณต้องการลบผู้เช่า "${tenant.name}" หรือไม่?`,
-      showCancelButton: true,
-      confirmButtonText: 'ลบ',
-      cancelButtonText: 'ยกเลิก',
-      confirmButtonColor: '#d33',
-      cancelButtonColor: '#6b7280',
-    });
-
-    if (result.isConfirmed) {
-      try {
-        const token = getStoredToken();
-        if (!token) return;
-        apiClient.setToken(token);
-        
-        await apiClient.deleteUser(tenant.id);
-        
-        await Swal.fire({
-          icon: 'success',
-          title: 'ลบสำเร็จ',
-          text: 'ผู้เช่าถูกลบแล้ว',
-          timer: 1500,
-          showConfirmButton: false,
-        });
-        
-        // Reload tenants
-        const allUsers = await apiClient.getUsers();
-        const tenantUsers = allUsers.filter((u: User) => u.role === 'tenant');
-        setTenants(tenantUsers);
-      } catch (error: any) {
-        await Swal.fire({
-          icon: 'error',
-          title: 'เกิดข้อผิดพลาด',
-          text: error.message || 'ไม่สามารถลบผู้เช่าได้',
-        });
-      }
-    }
-  };
 
   if (!user) return null;
 
@@ -542,67 +610,6 @@ export default function SettingsPage() {
           </CardBody>
         </Card>
 
-        {user.role === 'owner' && (
-          <Card className="shadow-md">
-            <CardHeader className="pb-3 flex justify-between items-center">
-              <h2 className="text-xl font-semibold text-gray-800">จัดการผู้เช่า</h2>
-              <Button
-                color="primary"
-                variant="solid"
-                size="sm"
-                startContent={<PlusIcon className="w-4 h-4" />}
-                onPress={handleAddTenant}
-              >
-                เพิ่มผู้เช่า
-              </Button>
-            </CardHeader>
-            <CardBody className="space-y-4 pt-4" style={{ width: '100%', padding: '1rem' }}>
-              {loadingTenants ? (
-                <div className="text-center py-8 text-gray-500">กำลังโหลด...</div>
-              ) : tenants.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  ยังไม่มีผู้เช่า กดปุ่ม "เพิ่มผู้เช่า" เพื่อเพิ่มผู้เช่าใหม่
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {tenants.map((tenant) => (
-                    <div
-                      key={tenant.id}
-                      className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50"
-                    >
-                      <div className="flex-1">
-                        <div className="font-semibold text-gray-800">{tenant.name}</div>
-                        <div className="text-sm text-gray-600 mt-1">
-                          {tenant.phone} {tenant.email && `• ${tenant.email}`}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="light"
-                          color="primary"
-                          startContent={<PencilIcon className="w-4 h-4" />}
-                          onPress={() => handleEditTenant(tenant)}
-                        >
-                          แก้ไข
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="light"
-                          color="danger"
-                          startContent={<TrashIcon className="w-4 h-4" />}
-                          onPress={() => handleDeleteTenant(tenant)}
-                        >
-                          ลบ
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardBody>
-          </Card>
-        )}
 
         <Card className="shadow-md">
           <CardHeader className="pb-3 flex justify-between items-center">

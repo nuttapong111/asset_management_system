@@ -35,49 +35,62 @@ interface DocumentExportParams {
  * Generate Monthly Income Summary
  */
 const generateMonthlySummary = (params: DocumentExportParams) => {
-  const { year, month, stats } = params;
-  
-  // Format month name
-  const monthDate = month ? new Date(`${month}-01`) : new Date();
-  const monthName = monthDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
-  
-  const workbook = XLSX.utils.book_new();
-  
-  // Summary Sheet
-  const summaryData = [
-    ['สรุปรายได้ประจำเดือน'],
-    [`เดือน: ${monthName}`],
-    [''],
-    ['รายการ', 'จำนวนเงิน (บาท)'],
-    ['รายได้รวมประจำเดือน', stats?.monthlyIncome || 0],
-    ['รายได้ที่เก็บได้', stats?.collectedThisMonth || 0],
-    ['รายได้ที่ค้างชำระ', stats?.overdueAmount || 0],
-    ['จำนวนรายการค้างชำระ', stats?.overdueCount || 0],
-    [''],
-    ['จำนวนสินทรัพย์ทั้งหมด', stats?.totalAssets || 0],
-    ['จำนวนสัญญาเช่า', stats?.totalContracts || 0],
-  ];
-  
-  const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(workbook, summarySheet, 'สรุป');
-  
-  // Payment Details Sheet (will be populated from backend)
-  const paymentHeaders = [
-    'ลำดับ',
-    'สัญญาเลขที่',
-    'ทรัพย์สิน',
-    'ผู้เช่า',
-    'ประเภท',
-    'จำนวนเงิน',
-    'กำหนดชำระ',
-    'วันที่ชำระ',
-    'สถานะ'
-  ];
-  
-  const paymentSheet = XLSX.utils.aoa_to_sheet([paymentHeaders]);
-  XLSX.utils.book_append_sheet(workbook, paymentSheet, 'รายละเอียดการชำระเงิน');
-  
-  return workbook;
+  try {
+    const { year, month, stats } = params;
+    
+    // Parse month - format should be YYYY-MM
+    let monthDate: Date;
+    let monthName: string;
+    
+    if (month && month.match(/^\d{4}-\d{2}$/)) {
+      monthDate = new Date(`${month}-01`);
+      monthName = monthDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+    } else {
+      monthDate = new Date();
+      monthName = monthDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+    }
+    
+    const workbook = XLSX.utils.book_new();
+    
+    // Summary Sheet
+    const summaryData = [
+      ['สรุปรายได้ประจำเดือน'],
+      [`เดือน: ${monthName}`],
+      [''],
+      ['รายการ', 'จำนวนเงิน (บาท)'],
+      ['รายได้รวมประจำเดือน', stats?.monthlyIncome || 0],
+      ['รายได้ที่เก็บได้', stats?.collectedThisMonth || 0],
+      ['รายได้ที่ค้างชำระ', stats?.overdueAmount || 0],
+      ['จำนวนรายการค้างชำระ', stats?.overdueCount || 0],
+      [''],
+      ['จำนวนสินทรัพย์ทั้งหมด', stats?.totalAssets || 0],
+      ['จำนวนสัญญาเช่า', stats?.totalContracts || 0],
+    ];
+    
+    const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'สรุป');
+    
+    // Payment Details Sheet (will be populated from backend)
+    const paymentHeaders = [
+      'ลำดับ',
+      'สัญญาเลขที่',
+      'ทรัพย์สิน',
+      'ผู้เช่า',
+      'ประเภท',
+      'จำนวนเงิน',
+      'กำหนดชำระ',
+      'วันที่ชำระ',
+      'สถานะ'
+    ];
+    
+    const paymentSheet = XLSX.utils.aoa_to_sheet([paymentHeaders]);
+    XLSX.utils.book_append_sheet(workbook, paymentSheet, 'รายละเอียดการชำระเงิน');
+    
+    return workbook;
+  } catch (error) {
+    console.error('Error generating monthly summary Excel:', error);
+    throw new Error(`ไม่สามารถสร้างรายงาน Excel ได้: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 };
 
 /**
@@ -155,7 +168,7 @@ const generateInvoice = (params: DocumentExportParams) => {
     ['รายการค่าเช่า'],
     ['เดือน', monthName],
     ['ค่าเช่า', contract?.rentAmount || 0],
-    ['ค่ามัดจำ', contract?.deposit || 0],
+    ['ค่าเช่าล่วงหน้า', contract?.deposit || 0],
     ['ค่าประกัน', contract?.insurance || 0],
     [''],
     ['รวมทั้งสิ้น', contract ? (contract.rentAmount + contract.deposit + contract.insurance) : 0],
@@ -223,7 +236,7 @@ const generateReceipt = (params: DocumentExportParams) => {
     receiptData.push([
       `รายการ ${index + 1}`,
       payment.type === 'rent' ? 'ค่าเช่า' : 
-      payment.type === 'deposit' ? 'ค่ามัดจำ' : 
+      payment.type === 'deposit' ? 'ค่าเช่าล่วงหน้า' : 
       payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ',
       payment.amount.toString(),
       payment.paidDate ? new Date(payment.paidDate).toLocaleDateString('th-TH') : '-'
@@ -339,7 +352,7 @@ const generateContractSummary = (params: DocumentExportParams) => {
     ['วันที่เริ่มสัญญา', contract ? new Date(contract.startDate).toLocaleDateString('th-TH') : '-'],
     ['วันที่สิ้นสุดสัญญา', contract ? new Date(contract.endDate).toLocaleDateString('th-TH') : '-'],
     ['ค่าเช่าต่อเดือน', contract?.rentAmount || 0],
-    ['ค่ามัดจำ', contract?.deposit || 0],
+    ['ค่าเช่าล่วงหน้า', contract?.deposit || 0],
     ['ค่าประกัน', contract?.insurance || 0],
     ['สถานะ', contract?.status === 'active' ? 'ใช้งาน' : 
               contract?.status === 'expired' ? 'หมดอายุ' : 
@@ -365,52 +378,174 @@ const generateContractSummary = (params: DocumentExportParams) => {
 };
 
 /**
- * Generate PDF for Monthly Income Summary
+ * Generate PDF for Monthly Income Summary using HTML
  */
 const generateMonthlySummaryPDF = (params: DocumentExportParams) => {
-  const { month, stats } = params;
-  const monthDate = month ? new Date(`${month}-01`) : new Date();
-  const monthName = monthDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+  try {
+    const { month, stats } = params;
+    
+    // Parse month - format should be YYYY-MM
+    let monthDate: Date;
+    let monthName: string;
+    
+    if (month && month.match(/^\d{4}-\d{2}$/)) {
+      monthDate = new Date(`${month}-01`);
+      monthName = monthDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+    } else {
+      monthDate = new Date();
+      monthName = monthDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+    }
+    
+    // Create HTML content
+    const htmlContent = `
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>สรุปรายได้ประจำเดือน</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 2cm;
+    }
+    body {
+      font-family: 'Sarabun', 'Sukhumvit Set', 'Noto Sans Thai', sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #333;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+      border-bottom: 2px solid #2563eb;
+      padding-bottom: 15px;
+    }
+    .header h1 {
+      font-size: 24px;
+      font-weight: bold;
+      margin: 0 0 10px 0;
+      color: #1e40af;
+    }
+    .header p {
+      margin: 5px 0;
+      color: #666;
+      font-size: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 13px;
+    }
+    table th {
+      background-color: #2563eb;
+      color: white;
+      border: 1px solid #1e40af;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+    }
+    table td {
+      border: 1px solid #ddd;
+      padding: 10px;
+    }
+    table tr:nth-child(even) {
+      background-color: #f8fafc;
+    }
+    table tr:hover {
+      background-color: #e0e7ff;
+    }
+    .footer {
+      margin-top: 40px;
+      text-align: center;
+      font-size: 11px;
+      color: #666;
+      border-top: 1px solid #ddd;
+      padding-top: 10px;
+    }
+    @media print {
+      body {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>สรุปรายได้ประจำเดือน</h1>
+    <p>เดือน: ${monthName}</p>
+    <p>วันที่สร้างรายงาน: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+  </div>
   
-  const doc = new jsPDF();
+  <table>
+    <thead>
+      <tr>
+        <th>รายการ</th>
+        <th>จำนวนเงิน (บาท)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>รายได้รวมประจำเดือน</td>
+        <td>${formatCurrency(stats?.monthlyIncome || 0)}</td>
+      </tr>
+      <tr>
+        <td>รายได้ที่เก็บได้</td>
+        <td>${formatCurrency(stats?.collectedThisMonth || 0)}</td>
+      </tr>
+      <tr>
+        <td>รายได้ที่ค้างชำระ</td>
+        <td>${formatCurrency(stats?.overdueAmount || 0)}</td>
+      </tr>
+      <tr>
+        <td>จำนวนรายการค้างชำระ</td>
+        <td>${stats?.overdueCount || 0} รายการ</td>
+      </tr>
+      <tr>
+        <td>จำนวนสินทรัพย์ทั้งหมด</td>
+        <td>${stats?.totalAssets || 0} แห่ง</td>
+      </tr>
+      <tr>
+        <td>จำนวนสัญญาเช่า</td>
+        <td>${stats?.totalContracts || 0} สัญญา</td>
+      </tr>
+    </tbody>
+  </table>
   
-  // Title
-  doc.setFontSize(18);
-  doc.text('สรุปรายได้ประจำเดือน', 105, 20, { align: 'center' });
-  
-  doc.setFontSize(12);
-  doc.text(`เดือน: ${monthName}`, 105, 30, { align: 'center' });
-  doc.text(`วันที่สร้างรายงาน: ${new Date().toLocaleDateString('th-TH')}`, 105, 37, { align: 'center' });
-  
-  // Summary Table
-  const summaryData = [
-    ['รายการ', 'จำนวนเงิน (บาท)'],
-    ['รายได้รวมประจำเดือน', formatCurrency(stats?.monthlyIncome || 0)],
-    ['รายได้ที่เก็บได้', formatCurrency(stats?.collectedThisMonth || 0)],
-    ['รายได้ที่ค้างชำระ', formatCurrency(stats?.overdueAmount || 0)],
-    ['จำนวนรายการค้างชำระ', `${stats?.overdueCount || 0} รายการ`],
-    ['จำนวนสินทรัพย์ทั้งหมด', `${stats?.totalAssets || 0} แห่ง`],
-    ['จำนวนสัญญาเช่า', `${stats?.totalContracts || 0} สัญญา`],
-  ];
-  
-  (doc as any).autoTable({
-    startY: 45,
-    head: [summaryData[0]],
-    body: summaryData.slice(1),
-    theme: 'striped',
-    headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
-    styles: { font: 'Sarabun', fontSize: 11 },
-  });
-  
-  // Footer
-  const pageCount = (doc as any).internal.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(10);
-    doc.text(`หน้า ${i} จาก ${pageCount}`, 105, doc.internal.pageSize.height - 10, { align: 'center' });
+  <div class="footer">
+    <p>สร้างโดยระบบบริหารจัดการทรัพย์สิน</p>
+  </div>
+</body>
+</html>
+    `;
+    
+    // Create a new window and print
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      throw new Error('ไม่สามารถเปิดหน้าต่างใหม่ได้ กรุณาตรวจสอบ popup blocker');
+    }
+    
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    
+    // Wait for content to load, then print
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+      // Close window after print dialog closes (user may cancel)
+      setTimeout(() => {
+        printWindow.close();
+      }, 1000);
+    }, 500);
+    
+    // Return a dummy jsPDF object for compatibility
+    return new jsPDF();
+  } catch (error) {
+    console.error('Error generating monthly summary PDF:', error);
+    throw new Error(`ไม่สามารถสร้างรายงาน PDF ได้: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
-  
-  return doc;
 };
 
 /**
@@ -573,7 +708,7 @@ const generateReceiptPDF = (params: DocumentExportParams) => {
     ...paidPayments.map((payment, index) => [
       (index + 1).toString(),
       payment.type === 'rent' ? 'ค่าเช่า' : 
-      payment.type === 'deposit' ? 'ค่ามัดจำ' : 
+      payment.type === 'deposit' ? 'ค่าเช่าล่วงหน้า' : 
       payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ',
       formatCurrency(payment.amount),
       payment.paidDate ? new Date(payment.paidDate).toLocaleDateString('th-TH') : '-'
@@ -653,7 +788,7 @@ const generatePaymentReportPDF = (params: DocumentExportParams) => {
     ...filteredPayments.map((payment, index) => [
       (index + 1).toString(),
       payment.type === 'rent' ? 'ค่าเช่า' : 
-      payment.type === 'deposit' ? 'ค่ามัดจำ' : 
+      payment.type === 'deposit' ? 'ค่าเช่าล่วงหน้า' : 
       payment.type === 'utility' ? 'ค่าน้ำ-ไฟ' : 'อื่นๆ',
       formatCurrency(payment.amount),
       new Date(payment.dueDate).toLocaleDateString('th-TH'),
@@ -770,12 +905,15 @@ export const exportDocument = (params: DocumentExportParams) => {
   
   // Export PDF
   if (params.format === 'pdf') {
+    // For monthly_summary, use HTML to PDF (better Thai font support)
+    if (params.type === 'monthly_summary') {
+      generateMonthlySummaryPDF(params);
+      return;
+    }
+    
     let doc: jsPDF;
     
     switch (params.type) {
-      case 'monthly_summary':
-        doc = generateMonthlySummaryPDF(params);
-        break;
       case 'annual_summary':
         doc = generateAnnualSummaryPDF(params);
         break;

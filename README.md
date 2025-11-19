@@ -235,18 +235,53 @@ npm run android  # หรือ npm run ios
 
 ## 📝 Environment Variables
 
-### Frontend (.env.local)
-```
+### Frontend
+
+#### สำหรับ Development
+สร้างไฟล์ `.env.local` ในโฟลเดอร์ `frontend/`:
+```env
 NEXT_PUBLIC_API_URL=http://localhost:3001
-NEXT_PUBLIC_MAP_API_KEY=your_leaflet_api_key
 ```
 
-### Backend (.env)
+#### สำหรับ Production (Railway)
+ตั้งค่า Environment Variables ใน Railway Dashboard:
+```env
+NEXT_PUBLIC_API_URL=https://your-backend-url.railway.app
 ```
+
+**หมายเหตุ:** ใช้ `NEXT_PUBLIC_` prefix เพื่อให้ Next.js expose ตัวแปรนี้ไปยัง client-side
+
+ดูรายละเอียดเพิ่มเติมที่ [frontend/ENV_SETUP.md](frontend/ENV_SETUP.md)
+
+### Backend
+
+#### สำหรับ Development
+สร้างไฟล์ `.env` ในโฟลเดอร์ `backend/`:
+```env
 PORT=3001
-JWT_SECRET=your_jwt_secret
-DATABASE_URL=your_database_url
+NODE_ENV=development
+CORS_ORIGIN=http://localhost:3000
+JWT_SECRET=your-secret-key-change-this-in-production
+JWT_EXPIRES_IN=7d
+DATABASE_URL=postgresql://user:password@localhost:5432/asset_management
 ```
+
+#### สำหรับ Production (Railway)
+ตั้งค่า Environment Variables ใน Railway Dashboard:
+```env
+PORT=3001
+NODE_ENV=production
+CORS_ORIGIN=https://your-frontend-url.railway.app
+JWT_SECRET=your-strong-secret-key-here
+JWT_EXPIRES_IN=7d
+DATABASE_URL=postgresql://user:password@host:port/database
+```
+
+**หมายเหตุ:** 
+- `DATABASE_URL` จะถูกสร้างอัตโนมัติโดย Railway เมื่อเพิ่ม PostgreSQL service
+- `CORS_ORIGIN` ควรเป็น URL ของ frontend ที่ deploy บน Railway
+
+ดูรายละเอียดเพิ่มเติมที่ [backend/ENV_SETUP.md](backend/ENV_SETUP.md)
 
 ## 🎨 UI/UX Design Guidelines
 
@@ -335,14 +370,29 @@ npm run test
 ## 📦 Deployment
 
 ### Frontend
-- Vercel (แนะนำ) หรือ Netlify
+- **Railway** (แนะนำ) - ตั้งค่า `NEXT_PUBLIC_API_URL` เป็น backend URL
+- Vercel หรือ Netlify
 
 ### Backend
-- Railway, Render, หรือ AWS
+- **Railway** (แนะนำ) - ตั้งค่า `CORS_ORIGIN` เป็น frontend URL และ `DATABASE_URL` จาก PostgreSQL service
+- Render หรือ AWS
 
 ### Mobile
 - App Store (iOS)
 - Google Play Store (Android)
+
+### การ Deploy บน Railway
+
+1. **Backend:**
+   - สร้าง PostgreSQL service ใน Railway
+   - Deploy backend code
+   - ตั้งค่า Environment Variables (ดูที่ `backend/ENV_SETUP.md`)
+   - Copy backend URL ที่ได้
+
+2. **Frontend:**
+   - Deploy frontend code
+   - ตั้งค่า `NEXT_PUBLIC_API_URL` เป็น backend URL ที่ได้จากขั้นตอนที่ 1
+   - ตั้งค่า `CORS_ORIGIN` ใน backend เป็น frontend URL
 
 ## 🤝 Contributing
 

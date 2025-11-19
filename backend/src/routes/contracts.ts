@@ -3,6 +3,7 @@ import { z } from 'zod';
 import pool from '../db/connection';
 import { authMiddleware, requireRole } from '../middleware/auth';
 import { transformContract } from '../utils/transform';
+import { generateMonthlyPayments } from '../utils/paymentGenerator';
 
 const contracts = new Hono();
 
@@ -116,6 +117,8 @@ contracts.post('/', requireRole('owner', 'admin'), async (c) => {
       return c.json({ error: 'Asset not found' }, 404);
     }
 
+    const ownerId = user.role === 'admin' ? assetResult.rows[0].owner_id : user.id;
+    
     if (user.role === 'owner' && assetResult.rows[0].owner_id !== user.id) {
       return c.json({ error: 'Forbidden' }, 403);
     }
@@ -129,13 +132,34 @@ contracts.post('/', requireRole('owner', 'admin'), async (c) => {
       return c.json({ error: 'User is not a tenant' }, 400);
     }
 
+    // Generate contract number: ปี/รันเลข (e.g., 2568/01)
+    const currentYear = new Date().getFullYear() + 543; // Convert to Buddhist Era
+    const yearStart = new Date(`${currentYear - 543}-01-01`);
+    const yearEnd = new Date(`${currentYear - 543}-12-31`);
+    
+    // Count contracts for this owner in the current year (only those with contract_number)
+    const countResult = await pool.query(
+      `SELECT COUNT(*) as count 
+       FROM contracts c
+       INNER JOIN assets a ON a.id = c.asset_id
+       WHERE a.owner_id = $1 
+         AND c.contract_number IS NOT NULL
+         AND c.created_at >= $2 
+         AND c.created_at <= $3`,
+      [ownerId, yearStart, yearEnd]
+    );
+    
+    const contractCount = parseInt(countResult.rows[0]?.count || '0');
+    const contractNumber = `${currentYear}/${String(contractCount + 1).padStart(2, '0')}`;
+
     const result = await pool.query(
       `INSERT INTO contracts (
-        asset_id, tenant_id, start_date, end_date,
+        contract_number, asset_id, tenant_id, start_date, end_date,
         rent_amount, deposit, insurance, status, documents, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *`,
       [
+        contractNumber,
         data.assetId,
         data.tenantId,
         data.startDate,
@@ -149,18 +173,31 @@ contracts.post('/', requireRole('owner', 'admin'), async (c) => {
       ]
     );
 
-    // Update asset status to 'rented' if contract is active and within date range
+    // Update asset status to 'rented' if contract is active
+    // If contract is active, it means the asset should be marked as rented
     if (data.status === 'active') {
-      const today = new Date().toISOString().split('T')[0];
-      const startDate = data.startDate;
-      const endDate = data.endDate;
+      await pool.query(
+        'UPDATE assets SET status = $1 WHERE id = $2',
+        ['rented', data.assetId]
+      );
       
-      // Only update to 'rented' if contract is within date range
-      if (startDate <= today && endDate >= today) {
-        await pool.query(
-          'UPDATE assets SET status = $1 WHERE id = $2',
-          ['rented', data.assetId]
+      // Generate monthly payment records (20 days before each month)
+      // First payment: advance rent + deposit (due on contract creation date)
+      // Subsequent payments: monthly rent (starting from month 2)
+      const contractCreatedAt = result.rows[0].created_at.toISOString().split('T')[0];
+      try {
+        await generateMonthlyPayments(
+          result.rows[0].id,
+          data.startDate,
+          data.endDate,
+          data.rentAmount,
+          data.deposit,
+          data.insurance,
+          contractCreatedAt
         );
+      } catch (error) {
+        console.error('Error generating payments:', error);
+        // Don't fail contract creation if payment generation fails
       }
     }
 
@@ -267,16 +304,41 @@ contracts.put('/:id', requireRole('owner', 'admin'), async (c) => {
     // Update asset status based on contract status
     const today = new Date().toISOString().split('T')[0];
     
-    if (data.status === 'active') {
+    const finalStartDate = data.startDate || contractRow.start_date.toISOString().split('T')[0];
+    const finalEndDate = data.endDate || contractRow.end_date.toISOString().split('T')[0];
+    const finalRentAmount = data.rentAmount !== undefined ? data.rentAmount : Number(contractRow.rent_amount);
+    const finalStatus = data.status || contractRow.status;
+    
+    if (finalStatus === 'active') {
       // Set asset to 'rented' if contract becomes active and within date range
-      const startDate = data.startDate || contractRow.start_date;
-      const endDate = data.endDate || contractRow.end_date;
-      
-      if (startDate <= today && endDate >= today) {
+      if (finalStartDate <= today && finalEndDate >= today) {
         await pool.query(
           'UPDATE assets SET status = $1 WHERE id = $2',
           ['rented', contractRow.asset_id]
         );
+      }
+      
+      // Generate monthly payment records if contract becomes active or dates/amount changed
+      // First payment: advance rent + insurance
+      // Subsequent payments: monthly rent (starting from month 2)
+      const finalDeposit = data.deposit !== undefined ? data.deposit : Number(contractRow.deposit);
+      const finalInsurance = data.insurance !== undefined ? data.insurance : Number(contractRow.insurance);
+      const contractCreatedAt = contractRow.created_at.toISOString().split('T')[0];
+      if (data.status === 'active' || data.startDate || data.endDate || data.rentAmount !== undefined || data.deposit !== undefined || data.insurance !== undefined) {
+        try {
+          await generateMonthlyPayments(
+            id,
+            finalStartDate,
+            finalEndDate,
+            finalRentAmount,
+            finalDeposit,
+            finalInsurance,
+            contractCreatedAt
+          );
+        } catch (error) {
+          console.error('Error generating payments:', error);
+          // Don't fail contract update if payment generation fails
+        }
       }
     } else if (data.status === 'terminated' || data.status === 'expired') {
       // Set asset to 'available' if contract is terminated or expired

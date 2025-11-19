@@ -244,7 +244,7 @@ export const showContractForm = async (
             <input id="swal-rentAmount" type="number" class="swal2-form-input" value="${initialData.rentAmount}" placeholder="0" min="0" step="0.01">
           </div>
           <div class="swal2-form-group">
-            <label class="swal2-form-label">ค่ามัดจำ (บาท)</label>
+            <label class="swal2-form-label">ค่าเช่าล่วงหน้า (บาท)</label>
             <input id="swal-deposit" type="number" class="swal2-form-input" value="${initialData.deposit}" placeholder="0" min="0" step="0.01">
           </div>
           <div class="swal2-form-group">
@@ -331,8 +331,18 @@ export const showContractForm = async (
       }
 
       if (!deposit || parseFloat(deposit) < 0) {
-        Swal.showValidationMessage('กรุณาระบุค่ามัดจำที่ถูกต้อง');
+        Swal.showValidationMessage('กรุณาระบุค่าเช่าล่วงหน้าที่ถูกต้อง');
         return false;
+      }
+      
+      // Validate: deposit should not exceed rentAmount (max 1 month advance)
+      if (deposit && rentAmount) {
+        const depositAmount = parseFloat(deposit);
+        const rentAmountNum = parseFloat(rentAmount);
+        if (depositAmount > rentAmountNum) {
+          Swal.showValidationMessage('ค่าเช่าล่วงหน้าไม่สามารถเกินค่าเช่าต่อเดือนได้ (สูงสุด 1 เดือน)');
+          return false;
+        }
       }
 
       if (!insurance || parseFloat(insurance) < 0) {
@@ -382,7 +392,7 @@ export const showContractForm = async (
         const result = await Swal.fire({
           icon: 'warning',
           title: 'มีสัญญาใช้งานอยู่แล้ว',
-          text: `ทรัพย์สินนี้มีสัญญาที่ใช้งานอยู่แล้ว (สัญญาเลขที่ ${activeContract.id}) ต้องการปิดสัญญาเดิมและสร้างสัญญาใหม่หรือไม่?`,
+          text: `ทรัพย์สินนี้มีสัญญาที่ใช้งานอยู่แล้ว (สัญญาเลขที่ ${activeContract.contractNumber || activeContract.id}) ต้องการปิดสัญญาเดิมและสร้างสัญญาใหม่หรือไม่?`,
           showCancelButton: true,
           confirmButtonText: 'ใช่, ปิดสัญญาเดิม',
           cancelButtonText: 'ยกเลิก',

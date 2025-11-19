@@ -45,74 +45,111 @@ export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [maintenance, setMaintenance] = useState<any[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const hasLoadedRef = useRef(false);
+
+  const loadData = async () => {
+    try {
+      const currentUser = getStoredUser();
+      const token = getStoredToken();
+      
+      if (!currentUser || !token) {
+        router.push('/login');
+        return;
+      }
+
+      hasLoadedRef.current = true;
+      setUser(currentUser);
+      apiClient.setToken(token);
+
+      // Load dashboard stats (may fail for tenant, continue anyway)
+      let dashboardStats = {};
+      try {
+        dashboardStats = await apiClient.getDashboardStats();
+      } catch (error) {
+        console.warn('Dashboard stats error (may be expected for tenant):', error);
+      }
+      
+      // Load assets
+      const userAssets = await apiClient.getAssets();
+      setAssets(userAssets);
+
+      // Load maintenance
+      const maintenanceData = await apiClient.getMaintenance();
+      setMaintenance(maintenanceData);
+
+      // Calculate assets by type
+      const assetsByType = {
+        house: userAssets.filter((a: any) => a.type === 'house').length,
+        condo: userAssets.filter((a: any) => a.type === 'condo').length,
+        apartment: userAssets.filter((a: any) => a.type === 'apartment').length,
+        land: userAssets.filter((a: any) => a.type === 'land').length,
+      };
+
+      setStats({
+        totalAssets: dashboardStats.totalAssets || userAssets.length,
+        totalContracts: dashboardStats.totalContracts || 0,
+        totalIncome: 0, // Will be calculated from financial records if needed
+        pendingMaintenance: dashboardStats.pendingMaintenance || maintenanceData.filter((m: any) => 
+          m.status === 'pending' || m.status === 'in_progress'
+        ).length,
+        assetsByType,
+        assetsByStatus: dashboardStats.assetsByStatus || {
+          available: userAssets.filter((a: any) => a.status === 'available').length,
+          rented: userAssets.filter((a: any) => a.status === 'rented').length,
+          maintenance: userAssets.filter((a: any) => a.status === 'maintenance').length,
+        },
+        paidCount: dashboardStats.paidCount || 0,
+        overdueCount: dashboardStats.overdueCount || 0,
+        monthlyIncome: dashboardStats.monthlyIncome || 0,
+        collectedThisMonth: 0, // Can be calculated from payments if needed
+        overdueAmount: 0, // Can be calculated from payments if needed
+      });
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     // Prevent duplicate loads
     if (hasLoadedRef.current) return;
-    
-    const loadData = async () => {
+    loadData();
+  }, []); // Initial load only
+
+  // Refresh data when refreshKey changes
+  useEffect(() => {
+    if (refreshKey > 0) {
+      hasLoadedRef.current = false;
+      loadData();
+    }
+  }, [refreshKey]);
+
+  // Listen for refresh events from DashboardMapComponent
+  useEffect(() => {
+    const handleRefresh = async () => {
+      // Immediately refresh maintenance list
       try {
-        const currentUser = getStoredUser();
         const token = getStoredToken();
-        
-        if (!currentUser || !token) {
-          router.push('/login');
-          return;
+        if (token) {
+          apiClient.setToken(token);
+          const maintenanceData = await apiClient.getMaintenance();
+          setMaintenance(maintenanceData);
         }
-
-        hasLoadedRef.current = true;
-        setUser(currentUser);
-        apiClient.setToken(token);
-
-        // Load dashboard stats
-        const dashboardStats = await apiClient.getDashboardStats();
-        
-        // Load assets
-        const userAssets = await apiClient.getAssets();
-        setAssets(userAssets);
-
-        // Load maintenance
-        const maintenanceData = await apiClient.getMaintenance();
-        setMaintenance(maintenanceData);
-
-        // Calculate assets by type
-        const assetsByType = {
-          house: userAssets.filter((a: any) => a.type === 'house').length,
-          condo: userAssets.filter((a: any) => a.type === 'condo').length,
-          apartment: userAssets.filter((a: any) => a.type === 'apartment').length,
-          land: userAssets.filter((a: any) => a.type === 'land').length,
-        };
-
-        setStats({
-          totalAssets: dashboardStats.totalAssets || userAssets.length,
-          totalContracts: dashboardStats.totalContracts || 0,
-          totalIncome: 0, // Will be calculated from financial records if needed
-          pendingMaintenance: dashboardStats.pendingMaintenance || maintenanceData.filter((m: any) => 
-            m.status === 'pending' || m.status === 'in_progress'
-          ).length,
-          assetsByType,
-          assetsByStatus: dashboardStats.assetsByStatus || {
-            available: userAssets.filter((a: any) => a.status === 'available').length,
-            rented: userAssets.filter((a: any) => a.status === 'rented').length,
-            maintenance: userAssets.filter((a: any) => a.status === 'maintenance').length,
-          },
-          paidCount: dashboardStats.paidCount || 0,
-          overdueCount: dashboardStats.overdueCount || 0,
-          monthlyIncome: dashboardStats.monthlyIncome || 0,
-          collectedThisMonth: 0, // Can be calculated from payments if needed
-          overdueAmount: 0, // Can be calculated from payments if needed
-        });
       } catch (error) {
-        console.error('Error loading dashboard data:', error);
-      } finally {
-        setLoading(false);
+        console.error('Error refreshing maintenance:', error);
       }
+      // Also trigger full refresh
+      setRefreshKey(prev => prev + 1);
     };
 
-    loadData();
-  }, []); // Remove router from dependencies
+    window.addEventListener('refreshDashboard', handleRefresh);
+    return () => {
+      window.removeEventListener('refreshDashboard', handleRefresh);
+    };
+  }, []);
 
   // For admin, redirect to summary page instead of showing map
   useEffect(() => {

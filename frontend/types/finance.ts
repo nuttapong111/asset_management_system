@@ -1,7 +1,7 @@
 export type FinanceType = 'income' | 'expense';
 export type IncomeCategory = 'rent' | 'utility' | 'other';
 export type ExpenseCategory = 'repair' | 'tax' | 'service' | 'maintenance' | 'other';
-export type PaymentStatus = 'pending' | 'paid' | 'overdue';
+export type PaymentStatus = 'pending' | 'waiting_approval' | 'paid' | 'overdue';
 
 export interface FinancialRecord {
   id: string;
@@ -25,6 +25,10 @@ export interface Payment {
   paidDate?: string;
   status: PaymentStatus;
   proofImages?: string[]; // รูปภาพหลักฐานการโอนเงิน
+  receiptNumber?: string; // เลขที่ใบเสร็จ
+  receiptDate?: string; // วันที่ออกใบเสร็จ
+  paymentMethod?: string; // วิธีการชำระเงิน
+  rejectionReason?: string; // เหตุผลในการปฏิเสธ
   createdAt: string;
   updatedAt: string;
 }

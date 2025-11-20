@@ -64,7 +64,7 @@ export default function DashboardPage() {
       apiClient.setToken(token);
 
       // Load dashboard stats (may fail for tenant, continue anyway)
-      let dashboardStats = {};
+      let dashboardStats: any = {};
       try {
         dashboardStats = await apiClient.getDashboardStats();
       } catch (error) {

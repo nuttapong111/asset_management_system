@@ -152,6 +152,9 @@ export interface Payment {
   paidDate?: string;
   status: PaymentStatus;
   proofImages?: string[];
+  receiptNumber?: string;
+  receiptDate?: string;
+  paymentMethod?: string;
   rejectionReason?: string;
   createdAt: string;
   updatedAt: string;

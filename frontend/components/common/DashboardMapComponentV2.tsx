@@ -578,11 +578,12 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
       }
     };
 
-    window.addEventListener('openPaymentDetail', handleOpenPaymentDetail as EventListener);
+    window.addEventListener('openPaymentDetail', handleOpenPaymentDetail as unknown as EventListener);
     return () => {
-      window.removeEventListener('openPaymentDetail', handleOpenPaymentDetail as EventListener);
+      window.removeEventListener('openPaymentDetail', handleOpenPaymentDetail as unknown as EventListener);
     };
-  }, [allPayments, allContracts, allAssets]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Check if asset has active maintenance requests
   const hasActiveMaintenance = (assetId: string): boolean => {
@@ -2665,10 +2666,10 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                         variant="bordered"
                         startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
                         onPress={() => {
-                          const allPayments = assetContracts.flatMap(c => 
+                          const assetPayments = assetContracts.flatMap(c => 
                               allPayments.filter((p: Payment) => p.contractId === c.id)
                           );
-                          exportPaymentsToExcel(allPayments, assetContracts, [selectedAsset!], paymentFilters);
+                          exportPaymentsToExcel(assetPayments, assetContracts, [selectedAsset!], paymentFilters);
                         }}
                       >
                         Excel
@@ -2678,10 +2679,10 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                         variant="bordered"
                         startContent={<ArrowDownTrayIcon className="w-4 h-4" />}
                         onPress={() => {
-                          const allPayments = assetContracts.flatMap(c => 
+                          const assetPayments = assetContracts.flatMap(c => 
                               allPayments.filter((p: Payment) => p.contractId === c.id)
                           );
-                          exportPaymentsToPDF(allPayments, assetContracts, [selectedAsset!], paymentFilters);
+                          exportPaymentsToPDF(assetPayments, assetContracts, [selectedAsset!], paymentFilters);
                         }}
                       >
                         PDF

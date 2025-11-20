@@ -165,7 +165,7 @@ export default function SettingsPage() {
 
   const handleCancelAddress = () => {
     // Reset address fields to original values
-    if (user?.address) {
+    if (user && 'address' in user && user.address) {
       const addr = typeof user.address === 'string' ? JSON.parse(user.address) : user.address;
       setHouseNumber(addr.houseNumber || '');
       setVillageNumber(addr.villageNumber || '');
@@ -276,7 +276,7 @@ export default function SettingsPage() {
 
   // Load address from user when component mounts
   useEffect(() => {
-    if (user?.address) {
+    if (user && 'address' in user && user.address) {
       const addr = typeof user.address === 'string' ? JSON.parse(user.address) : user.address;
       setHouseNumber(addr.houseNumber || '');
       setVillageNumber(addr.villageNumber || '');

@@ -2,6 +2,7 @@ export type ContractStatus = 'active' | 'expired' | 'terminated' | 'pending';
 
 export interface Contract {
   id: string;
+  contractNumber?: string;
   assetId: string;
   assetName?: string;
   tenantId: string;

@@ -3614,6 +3614,11 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   <label class="swal2-form-label">รายละเอียด *</label>
                                   <textarea id="swal-description" class="swal2-form-textarea" placeholder="อธิบายปัญหาหรือสิ่งที่ต้องการซ่อม" required></textarea>
                                 </div>
+                                <div class="swal2-form-group">
+                                  <label class="swal2-form-label">รูปภาพปัญหา (ไม่บังคับ)</label>
+                                  <input id="swal-images" type="file" accept="image/*" multiple class="swal2-form-input" style="padding: 0.5rem;">
+                                  <div id="swal-image-preview" style="margin-top: 0.5rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;"></div>
+                                </div>
                               </div>
                             `,
                             showCancelButton: true,
@@ -3621,17 +3626,64 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                             cancelButtonText: 'ยกเลิก',
                             confirmButtonColor: '#3b82f6',
                             cancelButtonColor: '#6b7280',
-                            preConfirm: () => {
+                            didOpen: () => {
+                              const imageInput = document.getElementById('swal-images') as HTMLInputElement;
+                              const previewDiv = document.getElementById('swal-image-preview');
+                              
+                              if (imageInput && previewDiv) {
+                                imageInput.addEventListener('change', async (e) => {
+                                  const files = (e.target as HTMLInputElement).files;
+                                  if (!files || files.length === 0) return;
+                                  
+                                  previewDiv.innerHTML = '';
+                                  const imagePromises = Array.from(files).map((file) => {
+                                    return new Promise<string>((resolve) => {
+                                      const reader = new FileReader();
+                                      reader.onload = (e) => {
+                                        const img = document.createElement('img');
+                                        img.src = e.target?.result as string;
+                                        img.style.width = '100%';
+                                        img.style.height = '80px';
+                                        img.style.objectFit = 'cover';
+                                        img.style.borderRadius = '0.25rem';
+                                        img.style.border = '1px solid #d1d5db';
+                                        previewDiv.appendChild(img);
+                                        resolve(e.target?.result as string);
+                                      };
+                                      reader.readAsDataURL(file);
+                                    });
+                                  });
+                                  
+                                  await Promise.all(imagePromises);
+                                });
+                              }
+                            },
+                            preConfirm: async () => {
                               const title = (document.getElementById('swal-title') as HTMLInputElement)?.value;
                               const type = (document.getElementById('swal-type') as HTMLSelectElement)?.value;
                               const description = (document.getElementById('swal-description') as HTMLTextAreaElement)?.value;
+                              const imageInput = document.getElementById('swal-images') as HTMLInputElement;
                               
                               if (!title || !type || !description) {
                                 Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วน');
                                 return false;
                               }
                               
-                              return { title, type, description };
+                              // Convert images to base64
+                              let images: string[] = [];
+                              if (imageInput?.files && imageInput.files.length > 0) {
+                                const imagePromises = Array.from(imageInput.files).map((file) => {
+                                  return new Promise<string>((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onload = (e) => resolve(e.target?.result as string);
+                                    reader.onerror = reject;
+                                    reader.readAsDataURL(file);
+                                  });
+                                });
+                                images = await Promise.all(imagePromises);
+                              }
+                              
+                              return { title, type, description, images };
                             },
                           });
                           
@@ -3654,6 +3706,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                 title: formData.title,
                                 description: formData.description,
                                 cost: 0,
+                                images: formData.images || [],
                               });
                               
                               await Swal.fire({
@@ -3739,7 +3792,12 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   </div>
                                   <div class="swal2-form-group">
                                     <label class="swal2-form-label">รายละเอียด *</label>
-                                    <textarea id="swal-description" class="swal2-form-textarea" placeholder="อธิบายปัญหาหรือสิ่งที่ต้องการซ่อม" required></textarea>
+                                    <textarea id="swal-description-2" class="swal2-form-textarea" placeholder="อธิบายปัญหาหรือสิ่งที่ต้องการซ่อม" required></textarea>
+                                  </div>
+                                  <div class="swal2-form-group">
+                                    <label class="swal2-form-label">รูปภาพปัญหา (ไม่บังคับ)</label>
+                                    <input id="swal-images-2" type="file" accept="image/*" multiple class="swal2-form-input" style="padding: 0.5rem;">
+                                    <div id="swal-image-preview-2" style="margin-top: 0.5rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;"></div>
                                   </div>
                                 </div>
                               `,
@@ -3748,17 +3806,64 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                               cancelButtonText: 'ยกเลิก',
                               confirmButtonColor: '#3b82f6',
                               cancelButtonColor: '#6b7280',
-                              preConfirm: () => {
+                              didOpen: () => {
+                                const imageInput = document.getElementById('swal-images-2') as HTMLInputElement;
+                                const previewDiv = document.getElementById('swal-image-preview-2');
+                                
+                                if (imageInput && previewDiv) {
+                                  imageInput.addEventListener('change', async (e) => {
+                                    const files = (e.target as HTMLInputElement).files;
+                                    if (!files || files.length === 0) return;
+                                    
+                                    previewDiv.innerHTML = '';
+                                    const imagePromises = Array.from(files).map((file) => {
+                                      return new Promise<string>((resolve) => {
+                                        const reader = new FileReader();
+                                        reader.onload = (e) => {
+                                          const img = document.createElement('img');
+                                          img.src = e.target?.result as string;
+                                          img.style.width = '100%';
+                                          img.style.height = '80px';
+                                          img.style.objectFit = 'cover';
+                                          img.style.borderRadius = '0.25rem';
+                                          img.style.border = '1px solid #d1d5db';
+                                          previewDiv.appendChild(img);
+                                          resolve(e.target?.result as string);
+                                        };
+                                        reader.readAsDataURL(file);
+                                      });
+                                    });
+                                    
+                                    await Promise.all(imagePromises);
+                                  });
+                                }
+                              },
+                              preConfirm: async () => {
                                 const title = (document.getElementById('swal-title') as HTMLInputElement)?.value;
                                 const type = (document.getElementById('swal-type') as HTMLSelectElement)?.value;
-                                const description = (document.getElementById('swal-description') as HTMLTextAreaElement)?.value;
+                                const description = (document.getElementById('swal-description-2') as HTMLTextAreaElement)?.value;
+                                const imageInput = document.getElementById('swal-images-2') as HTMLInputElement;
                                 
                                 if (!title || !type || !description) {
                                   Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วน');
                                   return false;
                                 }
                                 
-                                return { title, type, description };
+                                // Convert images to base64
+                                let images: string[] = [];
+                                if (imageInput?.files && imageInput.files.length > 0) {
+                                  const imagePromises = Array.from(imageInput.files).map((file) => {
+                                    return new Promise<string>((resolve, reject) => {
+                                      const reader = new FileReader();
+                                      reader.onload = (e) => resolve(e.target?.result as string);
+                                      reader.onerror = reject;
+                                      reader.readAsDataURL(file);
+                                    });
+                                  });
+                                  images = await Promise.all(imagePromises);
+                                }
+                                
+                                return { title, type, description, images };
                               },
                             });
                             
@@ -3781,6 +3886,7 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                   title: formData.title,
                                   description: formData.description,
                                   cost: 0,
+                                  images: formData.images || [],
                                 });
                                 
                                 await Swal.fire({
@@ -3839,6 +3945,35 @@ export default function DashboardMapComponent({ assets, stats, statCards, mainte
                                 <p className="text-xs text-gray-500">รายละเอียด</p>
                                 <p className="text-sm text-gray-800 mt-1">{item.description}</p>
                               </div>
+                              
+                              {/* รูปภาพปัญหา */}
+                              {item.images && item.images.length > 0 && (
+                                <div>
+                                  <p className="text-xs text-gray-500 mb-2">รูปภาพปัญหา</p>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {item.images.map((image, index) => (
+                                      <div key={index} className="relative group">
+                                        <img
+                                          src={image}
+                                          alt={`รูปภาพปัญหา ${index + 1}`}
+                                          className="w-full h-24 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
+                                          onClick={() => {
+                                            // Open image in modal
+                                            Swal.fire({
+                                              imageUrl: image,
+                                              imageAlt: `รูปภาพปัญหา ${index + 1}`,
+                                              showCloseButton: true,
+                                              showConfirmButton: false,
+                                              width: '90%',
+                                              padding: '1rem',
+                                            });
+                                          }}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                               
                               {item.scheduledDate && (
                                 <div>

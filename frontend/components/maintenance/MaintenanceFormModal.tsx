@@ -28,6 +28,7 @@ export default function MaintenanceFormModal({ isOpen, onClose, maintenance, onS
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [availableAssets, setAvailableAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
+  const [images, setImages] = useState<string[]>([]);
   const user = getStoredUser();
 
   // Load assets from API
@@ -75,6 +76,7 @@ export default function MaintenanceFormModal({ isOpen, onClose, maintenance, onS
         description: maintenance.description,
         cost: maintenance.cost.toString(),
       });
+      setImages(maintenance.images || []);
     } else {
       setFormData({
         assetId: defaultAssetId || '',
@@ -83,6 +85,7 @@ export default function MaintenanceFormModal({ isOpen, onClose, maintenance, onS
         description: '',
         cost: '',
       });
+      setImages([]);
     }
     setErrors({});
   }, [maintenance, isOpen, defaultAssetId]);
@@ -131,6 +134,7 @@ export default function MaintenanceFormModal({ isOpen, onClose, maintenance, onS
         title: formData.title.trim(),
         description: formData.description.trim(),
         cost: formData.cost ? Number(formData.cost) : 0,
+        images: images,
       };
 
       if (maintenance) {
@@ -252,6 +256,84 @@ export default function MaintenanceFormModal({ isOpen, onClose, maintenance, onS
               errorMessage={errors.cost}
               description="กรอกค่าใช้จ่ายถ้ามี (ถ้าไม่มีให้เว้นว่าง)"
             />
+
+            {/* รูปภาพปัญหา */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                รูปภาพปัญหา (ถ้ามี)
+              </label>
+              <div className="space-y-3">
+                {/* รูปภาพที่อัปโหลดแล้ว */}
+                {images.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {images.map((image, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={image}
+                          alt={`รูปภาพปัญหา ${index + 1}`}
+                          className="w-full h-32 object-cover rounded-lg border border-gray-200"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setImages(images.filter((_, i) => i !== index));
+                          }}
+                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {/* ปุ่มอัปโหลด */}
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={async (e) => {
+                      const files = e.target.files;
+                      if (!files || files.length === 0) return;
+
+                      // Convert files to base64
+                      const imagePromises = Array.from(files).map((file) => {
+                        return new Promise<string>((resolve, reject) => {
+                          const reader = new FileReader();
+                          reader.onload = (e) => {
+                            resolve(e.target?.result as string);
+                          };
+                          reader.onerror = reject;
+                          reader.readAsDataURL(file);
+                        });
+                      });
+
+                      try {
+                        const newImages = await Promise.all(imagePromises);
+                        setImages([...images, ...newImages]);
+                      } catch (error) {
+                        console.error('Error reading images:', error);
+                        Swal.fire({
+                          icon: 'error',
+                          title: 'เกิดข้อผิดพลาด',
+                          text: 'ไม่สามารถอ่านไฟล์รูปภาพได้',
+                        });
+                      }
+                    }}
+                  />
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+                    <p className="text-sm text-gray-600">
+                      คลิกเพื่อเลือกรูปภาพ หรือลากวางที่นี่
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      สามารถเลือกรูปภาพได้หลายไฟล์
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
           </div>
         </ModalBody>
         <ModalFooter>

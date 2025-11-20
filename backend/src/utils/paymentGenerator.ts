@@ -90,6 +90,23 @@ export async function generateMonthlyPayments(
       currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
     }
     
+    // Get contract info for notifications
+    const contractResult = await pool.query(
+      `SELECT c.tenant_id, a.name as asset_name, a.owner_id
+       FROM contracts c
+       INNER JOIN assets a ON a.id = c.asset_id
+       WHERE c.id = $1`,
+      [contractId]
+    );
+    
+    const contractInfo = contractResult.rows[0];
+    if (!contractInfo) {
+      throw new Error('Contract not found');
+    }
+    
+    const tenantId = contractInfo.tenant_id;
+    const assetName = contractInfo.asset_name || 'ทรัพย์สิน';
+    
     // Insert payments into database
     for (const payment of payments) {
       // Check if payment already exists for this contract and due_date
@@ -99,11 +116,38 @@ export async function generateMonthlyPayments(
       );
       
       if (existing.rows.length === 0) {
-        await pool.query(
+        const paymentResult = await pool.query(
           `INSERT INTO payments (contract_id, amount, type, due_date, status)
-           VALUES ($1, $2, $3, $4, 'pending')`,
+           VALUES ($1, $2, $3, $4, 'pending')
+           RETURNING id`,
           [payment.contractId, payment.amount, payment.type, payment.dueDate]
         );
+        
+        const paymentId = paymentResult.rows[0].id;
+        
+        // Create notification for tenant when new payment is created
+        try {
+          const dueDate = new Date(payment.dueDate).toLocaleDateString('th-TH', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          });
+          
+          await pool.query(
+            `INSERT INTO notifications (user_id, type, title, message, related_id, status)
+             VALUES ($1, $2, $3, $4, $5, 'unread')`,
+            [
+              tenantId,
+              'payment_due',
+              'มีรายการชำระเงินใหม่',
+              `มีรายการชำระเงินจำนวน ${Number(payment.amount).toLocaleString('th-TH')} บาท สำหรับ ${assetName} กำหนดชำระวันที่ ${dueDate}`,
+              paymentId,
+            ]
+          );
+        } catch (notifError) {
+          console.error('Error creating payment notification:', notifError);
+          // Don't fail payment creation if notification fails
+        }
       }
     }
   } catch (error) {

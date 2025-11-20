@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, Input, Textarea, Select, SelectItem } from '@heroui/react';
 import { Contract } from '@/types/contract';
 import { Asset } from '@/types/asset';
@@ -91,6 +91,48 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
     }
     setErrors({});
   }, [contract, isOpen, defaultAssetId]);
+
+  // Update min attribute on end date input when start date changes
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    // Use setTimeout to ensure DOM is ready
+    const timer = setTimeout(() => {
+      // Find the native input element inside the HeroUI Input component
+      // Try multiple selectors to find the date input
+      const selectors = [
+        'input[type="date"]',
+        'input[aria-label*="วันที่สิ้นสุด"]',
+        'input[placeholder*="วันที่สิ้นสุด"]',
+      ];
+      
+      let endDateInput: HTMLInputElement | null = null;
+      for (const selector of selectors) {
+        const inputs = document.querySelectorAll(selector);
+        // Find the one that's for end date (usually the second date input)
+        if (inputs.length >= 2) {
+          endDateInput = inputs[1] as HTMLInputElement;
+          break;
+        } else if (inputs.length === 1 && selector.includes('วันที่สิ้นสุด')) {
+          endDateInput = inputs[0] as HTMLInputElement;
+          break;
+        }
+      }
+      
+      if (endDateInput) {
+        if (formData.startDate) {
+          endDateInput.setAttribute('min', formData.startDate);
+          // Also set it via property
+          endDateInput.min = formData.startDate;
+        } else {
+          endDateInput.removeAttribute('min');
+          endDateInput.min = '';
+        }
+      }
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, [formData.startDate, isOpen]);
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -302,7 +344,13 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
                 label="วันที่เริ่มต้น"
                 value={formData.startDate}
                 onChange={(e) => {
-                  setFormData({ ...formData, startDate: e.target.value });
+                  const newStartDate = e.target.value;
+                  setFormData({ 
+                    ...formData, 
+                    startDate: newStartDate,
+                    // Reset endDate if it's before the new start date
+                    endDate: formData.endDate && new Date(formData.endDate) < new Date(newStartDate) ? '' : formData.endDate
+                  });
                   setErrors({ ...errors, startDate: '' });
                 }}
                 errorMessage={errors.startDate}
@@ -313,9 +361,36 @@ export default function ContractFormModal({ isOpen, onClose, contract, onSuccess
                 type="date"
                 label="วันที่สิ้นสุด"
                 value={formData.endDate}
+                min={formData.startDate || undefined}
                 onChange={(e) => {
-                  setFormData({ ...formData, endDate: e.target.value });
+                  const newEndDate = e.target.value;
+                  // Validate that end date is not before start date
+                  if (formData.startDate && newEndDate) {
+                    const startDateObj = new Date(formData.startDate + 'T00:00:00');
+                    const endDateObj = new Date(newEndDate + 'T00:00:00');
+                    
+                    if (endDateObj < startDateObj) {
+                      setErrors({ ...errors, endDate: 'วันที่สิ้นสุดต้องมากกว่าหรือเท่ากับวันที่เริ่มต้น' });
+                      // Don't update the value if invalid
+                      return;
+                    }
+                  }
+                  setFormData({ ...formData, endDate: newEndDate });
                   setErrors({ ...errors, endDate: '' });
+                }}
+                onBlur={(e) => {
+                  // Additional validation on blur
+                  const endDate = e.target.value;
+                  if (formData.startDate && endDate) {
+                    const startDateObj = new Date(formData.startDate + 'T00:00:00');
+                    const endDateObj = new Date(endDate + 'T00:00:00');
+                    
+                    if (endDateObj < startDateObj) {
+                      setErrors({ ...errors, endDate: 'วันที่สิ้นสุดต้องมากกว่าหรือเท่ากับวันที่เริ่มต้น' });
+                      // Clear invalid date
+                      setFormData({ ...formData, endDate: '' });
+                    }
+                  }
                 }}
                 errorMessage={errors.endDate}
                 isInvalid={!!errors.endDate}

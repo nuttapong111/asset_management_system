@@ -146,13 +146,35 @@ maintenance.post('/', async (c) => {
 
     // Get asset name
     const assetResult2 = await pool.query('SELECT name FROM assets WHERE id = $1', [data.assetId]);
+    const assetName = assetResult2.rows[0]?.name || 'ทรัพย์สิน';
     const userName = user.name;
 
     const maintenance = transformMaintenance(
       result.rows[0],
-      assetResult2.rows[0]?.name,
+      assetName,
       userName
     );
+
+    // Create notification for owner when tenant creates maintenance request
+    if (user.role === 'tenant') {
+      try {
+        const ownerId = assetResult.rows[0].owner_id;
+        await pool.query(
+          `INSERT INTO notifications (user_id, type, title, message, related_id, status)
+           VALUES ($1, $2, $3, $4, $5, 'unread')`,
+          [
+            ownerId,
+            'maintenance_request',
+            'มีการแจ้งซ่อมใหม่',
+            `${userName} แจ้งซ่อม: ${data.title} สำหรับ ${assetName}`,
+            result.rows[0].id,
+          ]
+        );
+      } catch (notifError) {
+        console.error('Error creating maintenance notification:', notifError);
+        // Don't fail maintenance creation if notification fails
+      }
+    }
 
     return c.json(maintenance, 201);
   } catch (error) {

@@ -53,18 +53,19 @@ function NotificationList({ userId, onClose, onNotificationRemoved, isOpen }: { 
       }
     };
     
-    // Only load when dropdown opens and notifications list is empty
-    if (isOpen && notifications.length === 0) {
+    // Load notifications every time dropdown opens
+    if (isOpen) {
       loadNotifications();
     }
   }, [isOpen]);
 
   const handleNotificationClick = async (notification: any) => {
     // Remove notification from list immediately (optimistic update)
+    // Since API only returns unread notifications, it will disappear after mark as read
     const wasUnread = notification.status === 'unread';
     setNotifications(prev => prev.filter(n => n.id !== notification.id));
     
-    // Update unread count if notification was unread
+    // Update unread count immediately (optimistic update)
     if (wasUnread && onNotificationRemoved) {
       onNotificationRemoved();
     }
@@ -77,6 +78,16 @@ function NotificationList({ userId, onClose, onNotificationRemoved, isOpen }: { 
       if (!token) return;
       apiClient.setToken(token);
       await apiClient.markNotificationRead(notification.id);
+      
+      // Reload notifications after successful mark as read
+      // This will only return unread notifications, so the read one won't appear
+      const data = await apiClient.getNotifications();
+      setNotifications(data);
+      
+      // Force update unread count immediately
+      if (onNotificationRemoved) {
+        onNotificationRemoved();
+      }
     } catch (error) {
       console.error('Error marking notification as read:', error);
       // If error, reload notifications to restore state
@@ -169,6 +180,32 @@ export default function Header() {
   const [unreadCount, setUnreadCount] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
+  
+  // Track if we've loaded the count
+  const hasLoadedCountRef = useRef(false);
+  const lastUpdateTimeRef = useRef<number>(0);
+
+  // Update unread notifications count
+  const updateUnreadCount = async (force = false) => {
+    try {
+      const token = getStoredToken();
+      if (!token) return;
+      
+      // Prevent too frequent updates (minimum 1 second between updates) unless forced
+      const now = Date.now();
+      if (!force && now - lastUpdateTimeRef.current < 1000 && hasLoadedCountRef.current) {
+        return;
+      }
+      
+      apiClient.setToken(token);
+      const data = await apiClient.getUnreadCount();
+      setUnreadCount(data.count);
+      lastUpdateTimeRef.current = Date.now();
+      hasLoadedCountRef.current = true;
+    } catch (error) {
+      console.error('Error loading unread count:', error);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -189,41 +226,15 @@ export default function Header() {
     };
   }, [isDropdownOpen, isNotificationOpen]);
 
-  // Track if we've loaded the count
-  const hasLoadedCountRef = useRef(false);
-  const lastUpdateTimeRef = useRef<number>(0);
-
-  // Update unread notifications count
   useEffect(() => {
     if (!user) return;
     
-    const updateCount = async () => {
-      try {
-        const token = getStoredToken();
-        if (!token) return;
-        
-        // Prevent too frequent updates (minimum 10 seconds between updates)
-        const now = Date.now();
-        if (now - lastUpdateTimeRef.current < 10000 && hasLoadedCountRef.current) {
-          return;
-        }
-        
-        apiClient.setToken(token);
-        const data = await apiClient.getUnreadCount();
-        setUnreadCount(data.count);
-        lastUpdateTimeRef.current = Date.now();
-        hasLoadedCountRef.current = true;
-      } catch (error) {
-        console.error('Error loading unread count:', error);
-      }
-    };
-    
     // Load immediately on mount
-      updateCount();
+    updateUnreadCount(true);
     
-    // Update every 30 seconds (instead of 2 seconds)
-    const interval = setInterval(updateCount, 30000);
-      return () => clearInterval(interval);
+    // Update every 10 seconds
+    const interval = setInterval(() => updateUnreadCount(false), 10000);
+    return () => clearInterval(interval);
   }, [user?.id]); // Only depend on user.id
 
   if (!user) return null;
@@ -300,16 +311,8 @@ export default function Header() {
                   isOpen={isNotificationOpen}
                   onClose={() => setIsNotificationOpen(false)}
                   onNotificationRemoved={async () => {
-                    // Update unread count immediately
-                    try {
-                      const token = getStoredToken();
-                      if (!token) return;
-                      apiClient.setToken(token);
-                      const data = await apiClient.getUnreadCount();
-                      setUnreadCount(data.count);
-                    } catch (error) {
-                      console.error('Error updating unread count:', error);
-                    }
+                    // Update unread count immediately (force update)
+                    await updateUnreadCount(true);
                   }}
                 />
               </div>

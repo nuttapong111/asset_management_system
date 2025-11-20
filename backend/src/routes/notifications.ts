@@ -7,7 +7,7 @@ const notifications = new Hono();
 
 notifications.use('/*', authMiddleware);
 
-// GET /api/notifications - Get user notifications
+// GET /api/notifications - Get user unread notifications only
 notifications.get('/', async (c) => {
   try {
     const user = c.get('user');
@@ -15,8 +15,11 @@ notifications.get('/', async (c) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
+    // Only get unread notifications for this user
     const result = await pool.query(
-      'SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC',
+      `SELECT * FROM notifications 
+       WHERE user_id = $1 AND status = 'unread' 
+       ORDER BY created_at DESC`,
       [user.id]
     );
 

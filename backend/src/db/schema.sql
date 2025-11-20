@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS payments (
   receipt_number VARCHAR(20),
   receipt_date DATE,
   payment_method VARCHAR(50),
+  rejection_reason TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

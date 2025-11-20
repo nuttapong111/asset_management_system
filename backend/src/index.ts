@@ -19,10 +19,16 @@ dotenv.config();
 const app = new Hono();
 
 // CORS configuration
+const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
+// Remove trailing slash if present
+const cleanCorsOrigin = corsOrigin.endsWith('/') ? corsOrigin.slice(0, -1) : corsOrigin;
+
 app.use('/*', cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: cleanCorsOrigin,
   credentials: true,
 }));
+
+console.log(`🌐 CORS configured for origin: ${cleanCorsOrigin}`);
 
 // Health check
 app.get('/health', (c) => {

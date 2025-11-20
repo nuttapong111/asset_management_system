@@ -28,7 +28,7 @@ const updateMaintenanceSchema = z.object({
 // GET /api/maintenance - Get maintenance requests (filtered by role)
 maintenance.get('/', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string; name?: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -70,7 +70,7 @@ maintenance.get('/', async (c) => {
 maintenance.get('/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string; name?: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -108,7 +108,10 @@ maintenance.get('/:id', async (c) => {
 // POST /api/maintenance - Create maintenance request (tenant/owner/admin)
 maintenance.post('/', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string; name?: string } | undefined;
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const data = createMaintenanceSchema.parse(body);
 
@@ -190,7 +193,10 @@ maintenance.post('/', async (c) => {
 maintenance.put('/:id', requireRole('owner', 'admin'), async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string; name?: string } | undefined;
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const data = updateMaintenanceSchema.parse(body);
 

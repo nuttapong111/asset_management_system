@@ -39,7 +39,7 @@ const updateAssetSchema = createAssetSchema.partial();
 // GET /api/assets - Get assets (filtered by role)
 assets.get('/', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -79,7 +79,7 @@ assets.get('/', async (c) => {
 assets.get('/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -116,7 +116,10 @@ assets.get('/:id', async (c) => {
 // POST /api/assets - Create asset (owner/admin only)
 assets.post('/', requireRole('owner', 'admin'), async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const data = createAssetSchema.parse(body);
 
@@ -153,7 +156,7 @@ assets.post('/', requireRole('owner', 'admin'), async (c) => {
         data.description || null,
         data.parentAssetId || null,
         data.isParent,
-        data.childAssets || [], // child_assets
+        [], // child_assets - not provided in schema, always empty array
         data.unitNumber || null,
         data.totalUnits || null,
         data.developmentHistory ? JSON.stringify(data.developmentHistory) : null,
@@ -182,7 +185,10 @@ assets.post('/', requireRole('owner', 'admin'), async (c) => {
 assets.put('/:id', requireRole('owner', 'admin'), async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const data = updateAssetSchema.parse(body);
 
@@ -246,7 +252,10 @@ assets.put('/:id', requireRole('owner', 'admin'), async (c) => {
 assets.delete('/:id', requireRole('owner', 'admin'), async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
 
     const assetResult = await pool.query('SELECT owner_id FROM assets WHERE id = $1', [id]);
     if (assetResult.rows.length === 0) {

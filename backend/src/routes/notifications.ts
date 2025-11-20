@@ -10,7 +10,7 @@ notifications.use('/*', authMiddleware);
 // GET /api/notifications - Get user unread notifications only
 notifications.get('/', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -34,7 +34,7 @@ notifications.get('/', async (c) => {
 // GET /api/notifications/unread-count
 notifications.get('/unread-count', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -55,7 +55,7 @@ notifications.get('/unread-count', async (c) => {
 notifications.put('/:id/read', async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }

@@ -39,7 +39,7 @@ auth.post('/login', async (c) => {
       throw new Error('JWT_SECRET is not set');
     }
 
-    const token = jwt.sign(
+    const token = (jwt.sign as any)(
       { userId: user.id, role: user.role },
       secret,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }

@@ -9,7 +9,7 @@ dashboard.use('/*', authMiddleware);
 // GET /api/dashboard - Get dashboard stats (filtered by role)
 dashboard.get('/', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }

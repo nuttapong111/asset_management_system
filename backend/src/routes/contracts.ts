@@ -27,7 +27,7 @@ const updateContractSchema = createContractSchema.partial();
 // GET /api/contracts - Get contracts (filtered by role)
 contracts.get('/', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -69,7 +69,7 @@ contracts.get('/', async (c) => {
 contracts.get('/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -107,7 +107,10 @@ contracts.get('/:id', async (c) => {
 // POST /api/contracts - Create contract (owner/admin only)
 contracts.post('/', requireRole('owner', 'admin'), async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const data = createContractSchema.parse(body);
 
@@ -225,7 +228,10 @@ contracts.post('/', requireRole('owner', 'admin'), async (c) => {
 contracts.put('/:id', requireRole('owner', 'admin'), async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const data = updateContractSchema.parse(body);
 

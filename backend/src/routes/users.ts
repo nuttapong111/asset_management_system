@@ -50,7 +50,7 @@ const updateUserSchema = z.object({
 // - Tenant: cannot access this endpoint
 users.get('/', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -98,7 +98,7 @@ users.get('/', async (c) => {
 users.get('/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const currentUser = c.get('user');
+    const currentUser = (c as any).get('user') as { id: string; role: string } | undefined;
 
     if (!currentUser) {
       return c.json({ error: 'Unauthorized' }, 401);
@@ -185,7 +185,7 @@ users.get('/:id', async (c) => {
 // - Owner can only create tenants
 users.post('/', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -247,12 +247,15 @@ users.post('/', async (c) => {
 users.put('/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const currentUser = c.get('user');
+    const currentUser = (c as any).get('user') as { id: string; role: string } | undefined;
+    if (!currentUser) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const data = updateUserSchema.parse(body);
 
     // Users can only update their own profile unless admin
-    if (currentUser?.role !== 'admin' && currentUser?.id !== id) {
+    if (currentUser.role !== 'admin' && currentUser.id !== id) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -349,7 +352,7 @@ users.put('/:id', async (c) => {
 users.delete('/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const currentUser = c.get('user');
+    const currentUser = (c as any).get('user') as { id: string; role: string } | undefined;
     
     if (!currentUser) {
       return c.json({ error: 'Unauthorized' }, 401);

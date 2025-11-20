@@ -27,7 +27,7 @@ const updatePaymentSchema = z.object({
 // GET /api/payments - Get payments (filtered by role)
 payments.get('/', async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -66,7 +66,7 @@ payments.get('/', async (c) => {
 payments.get('/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -104,7 +104,10 @@ payments.get('/:id', async (c) => {
 // POST /api/payments - Create payment (owner/admin only)
 payments.post('/', requireRole('owner', 'admin'), async (c) => {
   try {
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const data = createPaymentSchema.parse(body);
 
@@ -175,7 +178,10 @@ payments.post('/', requireRole('owner', 'admin'), async (c) => {
 payments.put('/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const user = c.get('user');
+    const user = (c as any).get('user') as { id: string; role: string } | undefined;
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const data = updatePaymentSchema.parse(body);
 

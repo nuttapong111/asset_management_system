@@ -295,7 +295,34 @@ const mockAssets = [
 ];
 
 // Child assets (rooms 101-110)
-const childAssets = [];
+const childAssets: Array<{
+  id: string;
+  owner_id: string;
+  type: string;
+  name: string;
+  address: string;
+  district: string;
+  province: string;
+  postal_code: string;
+  size: number;
+  rooms: number;
+  purchase_price: number;
+  current_value: number;
+  status: string;
+  parent_asset_id: string;
+  is_parent: boolean;
+  unit_number: string;
+  images: string[];
+  documents: string[];
+  latitude: number | null;
+  longitude: number | null;
+  description: string | null;
+  child_assets: any[];
+  total_units: number | null;
+  development_history: any;
+  created_at: string;
+  updated_at: string;
+}> = [];
 for (let i = 8; i <= 17; i++) {
   const roomNum = String(100 + (i - 7)).padStart(3, '0');
   childAssets.push({
@@ -552,8 +579,8 @@ async function seed() {
           user.name,
           user.email,
           user.address ? JSON.stringify(user.address) : null,
-          user.created_at || new Date().toISOString(),
-          user.updated_at || new Date().toISOString(),
+          (user as any).created_at || new Date().toISOString(),
+          (user as any).updated_at || new Date().toISOString(),
         ]
       );
     }

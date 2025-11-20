@@ -79,9 +79,11 @@ app.route('/api/dashboard', dashboard);
 app.route('/api/admin', admin);
 app.route('/api/notifications', notifications);
 
+// Railway uses PORT environment variable, default to 3001 for local development
 const port = parseInt(process.env.PORT || '3001', 10);
 
 console.log(`🚀 Server starting on port ${port}...`);
+console.log(`📝 PORT env var: ${process.env.PORT || '(not set, using default 3001)'}`);
 
 // Schedule payment notifications check
 // Check every 2 hours to catch notifications for overdue payments (every 2 days)
@@ -113,7 +115,9 @@ createPaymentNotifications().catch(error => {
 serve({
   fetch: app.fetch,
   port,
+  hostname: '0.0.0.0', // Listen on all interfaces (required for Railway)
 }, (info) => {
-  console.log(`✅ Server is running on http://localhost:${info.port}`);
+  console.log(`✅ Server is running on http://0.0.0.0:${info.port}`);
+  console.log(`🌐 Server accessible on port ${info.port}`);
 });
 

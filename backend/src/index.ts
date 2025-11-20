@@ -23,12 +23,36 @@ const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
 // Remove trailing slash if present
 const cleanCorsOrigin = corsOrigin.endsWith('/') ? corsOrigin.slice(0, -1) : corsOrigin;
 
+// Support multiple origins (comma-separated) or single origin
+const allowedOrigins = cleanCorsOrigin.split(',').map(origin => origin.trim());
+
 app.use('/*', cors({
-  origin: cleanCorsOrigin,
+  origin: (origin, c) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return cleanCorsOrigin;
+    
+    // Remove trailing slash for comparison
+    const cleanOrigin = origin.endsWith('/') ? origin.slice(0, -1) : origin;
+    
+    // Check if origin matches any allowed origin
+    for (const allowedOrigin of allowedOrigins) {
+      const cleanAllowed = allowedOrigin.endsWith('/') ? allowedOrigin.slice(0, -1) : allowedOrigin;
+      
+      if (cleanOrigin === cleanAllowed) {
+        return origin; // Return the original origin (with or without trailing slash)
+      }
+    }
+    
+    // Log for debugging
+    console.log(`⚠️  CORS blocked origin: ${origin}, allowed: ${allowedOrigins.join(', ')}`);
+    return null; // Block the request
+  },
   credentials: true,
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
-console.log(`🌐 CORS configured for origin: ${cleanCorsOrigin}`);
+console.log(`🌐 CORS configured for origins: ${allowedOrigins.join(', ')}`);
 
 // Health check
 app.get('/health', (c) => {

@@ -26,10 +26,12 @@ const cleanCorsOrigin = corsOrigin.endsWith('/') ? corsOrigin.slice(0, -1) : cor
 // Support multiple origins (comma-separated) or single origin
 const allowedOrigins = cleanCorsOrigin.split(',').map(origin => origin.trim());
 
+// CORS middleware with explicit OPTIONS handling
 app.use('/*', cors({
   origin: (origin, c) => {
     // Log all CORS requests for debugging
-    console.log(`🔍 CORS request from origin: ${origin || '(no origin)'}`);
+    const method = c.req.method;
+    console.log(`🔍 CORS ${method} request from origin: ${origin || '(no origin)'}`);
     
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) {
@@ -45,7 +47,7 @@ app.use('/*', cors({
       const cleanAllowed = allowedOrigin.endsWith('/') ? allowedOrigin.slice(0, -1) : allowedOrigin;
       
       if (cleanOrigin === cleanAllowed) {
-        console.log(`✅ CORS: Allowing origin: ${origin}`);
+        console.log(`✅ CORS: Allowing origin: ${origin} for ${method} request`);
         return origin; // Return the original origin (with or without trailing slash)
       }
     }
@@ -55,9 +57,10 @@ app.use('/*', cors({
     return null; // Block the request
   },
   credentials: true,
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposeHeaders: ['Content-Type'],
+  maxAge: 86400, // Cache preflight for 24 hours
 }));
 
 console.log(`🌐 CORS configured for origins: ${allowedOrigins.join(', ')}`);

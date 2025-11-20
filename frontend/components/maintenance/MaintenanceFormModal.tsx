@@ -198,7 +198,7 @@ export default function MaintenanceFormModal({ isOpen, onClose, maintenance, onS
               isInvalid={!!errors.assetId}
             >
               {availableAssets.map((asset) => (
-                <SelectItem key={asset.id} value={asset.id}>
+                <SelectItem key={asset.id}>
                   {asset.name} - {asset.address}
                 </SelectItem>
               ))}
@@ -213,9 +213,9 @@ export default function MaintenanceFormModal({ isOpen, onClose, maintenance, onS
                 setFormData({ ...formData, type: selectedType || 'repair' });
               }}
             >
-              <SelectItem key="repair" value="repair">ซ่อมแซม</SelectItem>
-              <SelectItem key="routine" value="routine">บำรุงรักษา</SelectItem>
-              <SelectItem key="emergency" value="emergency">ฉุกเฉิน</SelectItem>
+              <SelectItem key="repair">ซ่อมแซม</SelectItem>
+              <SelectItem key="routine">บำรุงรักษา</SelectItem>
+              <SelectItem key="emergency">ฉุกเฉิน</SelectItem>
             </Select>
 
             <Input

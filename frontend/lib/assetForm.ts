@@ -363,7 +363,7 @@ export const showAssetForm = async (
             console.log('addr.city_district:', addr.city_district);
             
             // Parse display_name เพื่อดึงข้อมูลที่ถูกต้อง
-            const displayParts = data.display_name ? data.display_name.split(',').map(p => p.trim()) : [];
+            const displayParts = data.display_name ? data.display_name.split(',').map((p: string) => p.trim()) : [];
             console.log('displayParts:', displayParts);
             
             // อำเภอ/เขต (amphoe/khet) - ระดับกลาง

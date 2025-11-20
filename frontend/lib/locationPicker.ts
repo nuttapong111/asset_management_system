@@ -47,7 +47,7 @@ async function reverseGeocode(lat: number, lng: number): Promise<LocationInfo | 
     // - state = จังหวัด (province) - ระดับใหญ่ที่สุด
     
     // Parse display_name เพื่อดึงข้อมูลที่ถูกต้อง
-    const displayParts = data.display_name ? data.display_name.split(',').map(p => p.trim()) : [];
+    const displayParts = data.display_name ? data.display_name.split(',').map((p: string) => p.trim()) : [];
     console.log('displayParts:', displayParts);
     
     // อำเภอ/เขต (amphoe/khet) - ระดับกลาง

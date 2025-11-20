@@ -26,21 +26,32 @@
 
 4. บันทึกการเปลี่ยนแปลง
 
-### 2. ตั้งค่า CORS_ORIGIN ใน Backend Service
+### 2. ตั้งค่า CORS_ORIGIN ใน Backend Service (สำคัญมาก!)
 
-**สำคัญ:** Backend Service ต้องมี `CORS_ORIGIN` ใน **Service-specific Variables** ไม่ใช่แค่ Shared Variables
+**⚠️ สำคัญ:** Backend Service ต้องมี `CORS_ORIGIN` ใน **Service-specific Variables** ไม่ใช่แค่ Shared Variables เท่านั้น
+
+**ทำตามขั้นตอนนี้:**
 
 1. ไปที่ **Backend Service** (เช่น `amiable-charisma`) > **Settings** > **Variables**
-2. เพิ่มหรือแก้ไข `CORS_ORIGIN`:
+2. คลิก **"New Variable"** หรือแก้ไขตัวแปรที่มีอยู่
+3. ตั้งค่า:
    ```
-   CORS_ORIGIN=https://assetmanagementsystem-staging.up.railway.app
+   Variable Name: CORS_ORIGIN
+   Value: https://assetmanagementsystem-staging.up.railway.app
    ```
-   (ไม่มี trailing slash)
+   **สำคัญ:** 
+   - ต้องมี `https://` นำหน้า
+   - **อย่าใส่ trailing slash (`/`)** ท้าย URL
+   - ใช้ URL ของ Frontend (ไม่ใช่ Backend)
 
-3. หรือใช้ Shared Variable โดย reference:
+3. **หรือใช้ Shared Variable โดย reference:**
    ```
-   CORS_ORIGIN=${{shared.CORS_ORIGIN}}
+   Variable Name: CORS_ORIGIN
+   Value: ${{shared.CORS_ORIGIN}}
    ```
+   (แต่ต้องแก้ไข Shared Variable ให้ไม่มี trailing slash ก่อน)
+
+4. **บันทึกและรอ Railway rebuild backend**
 
 ### 3. ตรวจสอบ NEXT_PUBLIC_API_URL
 

@@ -28,8 +28,14 @@ const allowedOrigins = cleanCorsOrigin.split(',').map(origin => origin.trim());
 
 app.use('/*', cors({
   origin: (origin, c) => {
+    // Log all CORS requests for debugging
+    console.log(`🔍 CORS request from origin: ${origin || '(no origin)'}`);
+    
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return cleanCorsOrigin;
+    if (!origin) {
+      console.log(`✅ CORS: Allowing request with no origin`);
+      return cleanCorsOrigin;
+    }
     
     // Remove trailing slash for comparison
     const cleanOrigin = origin.endsWith('/') ? origin.slice(0, -1) : origin;
@@ -39,6 +45,7 @@ app.use('/*', cors({
       const cleanAllowed = allowedOrigin.endsWith('/') ? allowedOrigin.slice(0, -1) : allowedOrigin;
       
       if (cleanOrigin === cleanAllowed) {
+        console.log(`✅ CORS: Allowing origin: ${origin}`);
         return origin; // Return the original origin (with or without trailing slash)
       }
     }
@@ -50,9 +57,11 @@ app.use('/*', cors({
   credentials: true,
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
+  exposeHeaders: ['Content-Type'],
 }));
 
 console.log(`🌐 CORS configured for origins: ${allowedOrigins.join(', ')}`);
+console.log(`📝 CORS_ORIGIN env var: ${process.env.CORS_ORIGIN || '(not set)'}`);
 
 // Health check
 app.get('/health', (c) => {
